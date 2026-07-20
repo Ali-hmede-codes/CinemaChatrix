@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Database
+database/*.db
+database/*.db-journal
+database/*.db-wal
+database/*.db-shm
+
+# Uploads (video files — never commit)
+uploads/*
+!uploads/.gitkeep
+!uploads/_temp/.gitkeep
+
+# Public generated content
+public/posters/*
+!public/posters/.gitkeep
+public/thumbnails/*
+!public/thumbnails/.gitkeep
+
+# Logs
+logs/*
+!logs/.gitkeep
+*.log
+
+# Environment
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

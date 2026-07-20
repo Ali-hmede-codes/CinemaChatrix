@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CinemaChatrix · Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/png" href="./logo.png" />
+    <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+    <!-- ============ LOGIN ============ -->
+    <div id="login-view" class="login-view">
+        <div class="login-card">
+            <div class="brand">
+                <img class="brand-logo" src="./logo.png" alt="CinemaChatrix logo" />
+            </div>
+            <p class="login-sub">Admin Control Panel</p>
+            <form id="login-form">
+                <div class="field">
+                    <label for="username">Username</label>
+                    <input id="username" name="username" type="text" autocomplete="username" value="admin" required />
+                </div>
+                <div class="field">
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" autocomplete="current-password" required />
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" id="login-btn">Sign In</button>
+            </form>
+            <p class="login-hint">Default: <code>admin</code> / <code>ChangeMe123!</code></p>
+        </div>
+    </div>
+
+    <!-- ============ DASHBOARD ============ -->
+    <div id="app-view" class="app-view hidden">
+        <header class="topbar">
+            <div class="brand brand-sm">
+                <img class="brand-logo" src="./logo.png" alt="CinemaChatrix logo" />
+            </div>
+            <nav class="tabs">
+                <button class="tab active" data-tab="films">Films</button>
+                <button class="tab" data-tab="series">Series</button>
+                <button class="tab" data-tab="codes">Codes</button>
+            </nav>
+            <div class="topbar-right">
+                <span id="who" class="who"></span>
+                <button id="logout-btn" class="btn btn-ghost">Logout</button>
+            </div>
+        </header>
+
+        <main class="content">
+            <!-- ============ FILMS ============ -->
+            <section id="tab-films" class="tab-panel">
+                <div class="panel-head">
+                    <div class="panel-title">
+                        <h2>Films</h2>
+                        <span class="count-pill" id="films-count">0</span>
+                    </div>
+                    <div class="head-actions">
+                        <div class="search-box">
+                            <span class="search-ico">🔎</span>
+                            <input id="films-search" type="search" placeholder="Search films…" />
+                        </div>
+                        <button class="btn btn-ghost" id="btn-bulk-films">⚡ Bulk Import</button>
+                        <button class="btn btn-primary" id="btn-add-film">＋ Add Film</button>
+                    </div>
+                </div>
+                <div id="films-grid" class="cards-grid"></div>
+            </section>
+
+            <!-- ============ SERIES ============ -->
+            <section id="tab-series" class="tab-panel hidden">
+                <!-- LIST VIEW -->
+                <div id="series-list-view">
+                    <div class="panel-head">
+                        <div class="panel-title">
+                            <h2>Series</h2>
+                            <span class="count-pill" id="series-count">0</span>
+                        </div>
+                        <div class="head-actions">
+                            <div class="search-box">
+                                <span class="search-ico">🔎</span>
+                                <input id="series-search" type="search" placeholder="Search series…" />
+                            </div>
+                            <button class="btn btn-primary" id="btn-add-series">＋ Add Series</button>
+                        </div>
+                    </div>
+                    <div id="series-grid" class="cards-grid"></div>
+                </div>
+
+                <!-- DETAIL VIEW (episode manager) -->
+                <div id="series-detail-view" class="hidden"></div>
+            </section>
+
+            <!-- ============ CODES ============ -->
+            <section id="tab-codes" class="tab-panel hidden">
+                <div class="panel-head">
+                    <div class="panel-title">
+                        <h2>Access Codes</h2>
+                        <span class="count-pill" id="codes-count">0</span>
+                    </div>
+                    <div class="head-actions">
+                        <div class="search-box">
+                            <span class="search-ico">🔎</span>
+                            <input id="codes-search" type="search" placeholder="Search code or title…" />
+                        </div>
+                        <select id="codes-filter" class="select-inline" title="Filter by status">
+                            <option value="">All statuses</option>
+                            <option value="available">Available</option>
+                            <option value="used">Used</option>
+                            <option value="expired">Expired</option>
+                        </select>
+                        <button class="btn btn-primary" id="btn-gen-codes">＋ Generate Codes</button>
+                    </div>
+                </div>
+                <div class="code-stats" id="codes-stats"></div>
+                <div id="codes-list"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ============ UNIVERSAL MODAL ============ -->
+    <div id="modal-root" class="modal-root hidden">
+        <div class="modal-backdrop" data-close></div>
+        <div class="modal-card" role="dialog" aria-modal="true">
+            <div class="modal-head">
+                <h3 id="modal-title">Title</h3>
+                <button class="modal-close" data-close aria-label="Close">✕</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script src="./app.js"></script>
+</body>
+</html>
