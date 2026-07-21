@@ -91,9 +91,15 @@ CREATE TABLE IF NOT EXISTS content_categories (
 );
 
 -- ============ CODES ============
--- Each code is tied to ONE movie, ONE episode, OR a WHOLE series.
+-- A code unlocks ONE movie, ONE episode, or a WHOLE series.
 -- A series code unlocks every episode of that series (present and future).
 -- A code can be used ONCE on ONE device.
+--
+-- UNIVERSAL (redeemer-chosen) codes: when `kind` is 'film' or 'series' and no
+-- specific target is set, the code is generic — the person who redeems it picks
+-- which film / series to unlock. On redeem the chosen target is written back
+-- (movie_id / series_id), so a used universal code looks like any other code.
+--
 -- The content targets CASCADE on delete: a code is meaningless once the
 -- movie / episode / series it unlocks is gone. (SET NULL would leave an
 -- all-NULL row and violate chk_code_target.)
@@ -103,6 +109,7 @@ CREATE TABLE IF NOT EXISTS codes (
     movie_id   INTEGER,
     episode_id INTEGER,
     series_id  INTEGER,                 -- set for a whole-series code
+    kind       TEXT,                    -- 'film' | 'series' for universal codes; NULL for specific codes
     is_used    INTEGER DEFAULT 0,       -- 0 = unused, 1 = used
     device_id  INTEGER,                 -- null until redeemed
     created_by INTEGER NOT NULL,        -- admin id
@@ -117,7 +124,8 @@ CREATE TABLE IF NOT EXISTS codes (
     CONSTRAINT chk_code_target CHECK (
         (movie_id   IS NOT NULL AND episode_id IS NULL AND series_id IS NULL) OR
         (episode_id IS NOT NULL AND movie_id   IS NULL AND series_id IS NULL) OR
-        (series_id  IS NOT NULL AND movie_id   IS NULL AND episode_id IS NULL)
+        (series_id  IS NOT NULL AND movie_id   IS NULL AND episode_id IS NULL) OR
+        (movie_id IS NULL AND episode_id IS NULL AND series_id IS NULL AND COALESCE(kind,'') IN ('film','series'))
     )
 );
 

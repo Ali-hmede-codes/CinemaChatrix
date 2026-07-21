@@ -198,6 +198,67 @@ function runMigrations(database) {
         migrateCascade();
         logger.info('[database] codes table migrated to ON DELETE CASCADE');
     }
+
+    /* ---- Migration: universal (redeemer-chosen) codes -----------------
+     * Adds `codes.kind` and relaxes the target CHECK so a code can be
+     * generic — unlocking a film / series the redeemer picks at redeem time
+     * (all targets NULL until then). SQLite can't modify a CHECK on an
+     * existing table, so we rebuild it (preserving all rows).
+     * ------------------------------------------------------------------ */
+    const codeCols2 = database.prepare('PRAGMA table_info(codes)').all();
+    const hasKind = codeCols2.some((c) => c.name === 'kind');
+
+    if (codeCols2.length > 0 && !hasKind) {
+        logger.info('[database] Migrating codes table → adding universal (redeemer-chosen) code support…');
+        const migrateKind = database.transaction(() => {
+            database.exec(`
+                CREATE TABLE codes_kind (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code       TEXT UNIQUE NOT NULL,
+                    movie_id   INTEGER,
+                    episode_id INTEGER,
+                    series_id  INTEGER,
+                    kind       TEXT,
+                    is_used    INTEGER DEFAULT 0,
+                    device_id  INTEGER,
+                    created_by INTEGER NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    used_at    DATETIME,
+                    expires_at DATETIME,
+                    FOREIGN KEY (movie_id)   REFERENCES movies(id)   ON DELETE CASCADE,
+                    FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (series_id)  REFERENCES series(id)   ON DELETE CASCADE,
+                    FOREIGN KEY (device_id)  REFERENCES devices(id)  ON DELETE SET NULL,
+                    FOREIGN KEY (created_by) REFERENCES admins(id),
+                    CONSTRAINT chk_code_target CHECK (
+                        (movie_id   IS NOT NULL AND episode_id IS NULL AND series_id IS NULL) OR
+                        (episode_id IS NOT NULL AND movie_id   IS NULL AND series_id IS NULL) OR
+                        (series_id  IS NOT NULL AND movie_id   IS NULL AND episode_id IS NULL) OR
+                        (movie_id IS NULL AND episode_id IS NULL AND series_id IS NULL AND COALESCE(kind,'') IN ('film','series'))
+                    )
+                );
+
+                INSERT INTO codes_kind
+                    (id, code, movie_id, episode_id, series_id, kind, is_used, device_id,
+                     created_by, created_at, used_at, expires_at)
+                SELECT
+                    id, code, movie_id, episode_id, series_id, NULL, is_used, device_id,
+                    created_by, created_at, used_at, expires_at
+                FROM codes;
+
+                DROP TABLE codes;
+                ALTER TABLE codes_kind RENAME TO codes;
+
+                CREATE INDEX IF NOT EXISTS idx_codes_code    ON codes(code);
+                CREATE INDEX IF NOT EXISTS idx_codes_movie   ON codes(movie_id);
+                CREATE INDEX IF NOT EXISTS idx_codes_episode ON codes(episode_id);
+                CREATE INDEX IF NOT EXISTS idx_codes_series  ON codes(series_id);
+                CREATE INDEX IF NOT EXISTS idx_codes_device  ON codes(device_id);
+            `);
+        });
+        migrateKind();
+        logger.info('[database] codes table migrated — universal codes enabled');
+    }
 }
 
 /**

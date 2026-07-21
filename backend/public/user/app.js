@@ -698,7 +698,7 @@ function openRedeem(context = null) {
     state.redeemContext = context;
     $('#redeem-hint').textContent = context && context.title
         ? `Enter the code for “${context.title}”. It unlocks on this device only.`
-        : 'Enter any access code you received. The content will appear in My Library.';
+        : 'Enter your access code. Tip: open the film or series you want first, then enter the code to unlock it here.';
     $('#redeem-input').value = '';
     redeemRoot.classList.remove('hidden');
     document.body.style.overflow = 'hidden';

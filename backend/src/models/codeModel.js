@@ -183,21 +183,22 @@ function getUnlockedSeriesByDevice(deviceId) {
  * @param {number|null} opts.movie_id
  * @param {number|null} opts.episode_id
  * @param {number|null} opts.series_id
+ * @param {string|null} [opts.kind]  - 'film' | 'series' for universal (redeemer-chosen) codes
  * @param {number} opts.created_by   - admin id
  * @param {string|null} [opts.expires_at] - ISO datetime or null
  * @returns {object[]} the created code rows
  */
-function createMany({ codes, movie_id = null, episode_id = null, series_id = null, created_by, expires_at = null }) {
+function createMany({ codes, movie_id = null, episode_id = null, series_id = null, kind = null, created_by, expires_at = null }) {
     const db = getDb();
     const insert = db.prepare(`
-        INSERT INTO codes (code, movie_id, episode_id, series_id, created_by, expires_at)
-        VALUES (@code, @movie_id, @episode_id, @series_id, @created_by, @expires_at)
+        INSERT INTO codes (code, movie_id, episode_id, series_id, kind, created_by, expires_at)
+        VALUES (@code, @movie_id, @episode_id, @series_id, @kind, @created_by, @expires_at)
     `);
 
     const insertMany = db.transaction((rows) => {
         const ids = [];
         for (const code of rows) {
-            const info = insert.run({ code, movie_id, episode_id, series_id, created_by, expires_at });
+            const info = insert.run({ code, movie_id, episode_id, series_id, kind, created_by, expires_at });
             ids.push(info.lastInsertRowid);
         }
         return ids;
@@ -222,6 +223,24 @@ function activate(id, deviceId) {
     return findById(id);
 }
 
+/**
+ * Redeem a UNIVERSAL code: write the redeemer-chosen target back onto the
+ * code, then mark it used and bind it to a device — all in one statement so
+ * it can never end up used-but-unbound. Pass exactly one of movie_id/series_id.
+ * @param {number} id
+ * @param {number} deviceId
+ * @param {object} target - { movie_id? , series_id? }
+ * @returns {object} the updated code row
+ */
+function bindAndActivate(id, deviceId, { movie_id = null, series_id = null } = {}) {
+    getDb().prepare(`
+        UPDATE codes
+        SET movie_id = ?, series_id = ?, is_used = 1, device_id = ?, used_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(movie_id, series_id, deviceId, id);
+    return findById(id);
+}
+
 function deleteById(id) {
     const info = getDb().prepare('DELETE FROM codes WHERE id = ?').run(id);
     return info.changes > 0;
@@ -239,5 +258,6 @@ module.exports = {
     getUnlockedSeriesByDevice,
     createMany,
     activate,
+    bindAndActivate,
     deleteById,
 };

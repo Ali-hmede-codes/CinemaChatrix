@@ -1146,6 +1146,12 @@ function fmtDate(s) {
 
 function codeTargetLabel(c) {
     const t = c.target || {};
+    if (t.type === 'any-film') {
+        return `<span class="tgt-ico">🎬</span>Any film <span class="ep-tag">Redeemer chooses</span>`;
+    }
+    if (t.type === 'any-series') {
+        return `<span class="tgt-ico">📺</span>Any series <span class="ep-tag">Redeemer chooses</span>`;
+    }
     if (t.type === 'movie') {
         return `<span class="tgt-ico">🎬</span>${esc(t.title || 'Unknown film')}`;
     }
@@ -1288,12 +1294,19 @@ async function deleteCode(c) {
 
 /* ---- Generate codes modal ---- */
 function openGenerateModal() {
-    const movieOpts = state.films.length
-        ? state.films.map((m) => `<option value="${m.id}">${esc(m.title)}</option>`).join('')
-        : '<option value="" disabled>No films yet — add one first</option>';
-    const seriesOptsPlain = state.series.length
-        ? state.series.map((s) => `<option value="${s.id}">${esc(s.title)}</option>`).join('')
-        : '<option value="" disabled>No series yet — add one first</option>';
+    // Film / whole-series pickers default to a UNIVERSAL code ("Any …") so the
+    // admin can mint a code without choosing a title — the person redeeming it
+    // picks which one. Specific titles follow in an optgroup.
+    const movieOpts =
+        '<option value="any">✨ Any film — the person chooses</option>' +
+        (state.films.length
+            ? `<optgroup label="Or a specific film">${state.films.map((m) => `<option value="${m.id}">${esc(m.title)}</option>`).join('')}</optgroup>`
+            : '');
+    const seriesOptsPlain =
+        '<option value="any">✨ Any series — the person chooses</option>' +
+        (state.series.length
+            ? `<optgroup label="Or a specific series">${state.series.map((s) => `<option value="${s.id}">${esc(s.title)}</option>`).join('')}</optgroup>`
+            : '');
     const seriesOpts = state.series.length
         ? '<option value="">Select a series…</option>' +
           state.series.map((s) => `<option value="${s.id}">${esc(s.title)}</option>`).join('')
@@ -1313,12 +1326,13 @@ function openGenerateModal() {
             <div class="field" id="gen-movie-field">
                 <label>Film *</label>
                 <select id="gen-movie">${movieOpts}</select>
+                <p class="hint">“Any film” mints a universal ticket — the person unlocks whichever film they open it on.</p>
             </div>
 
             <div class="field hidden" id="gen-wseries-field">
                 <label>Series *</label>
                 <select id="gen-wseries">${seriesOptsPlain}</select>
-                <p class="hint">Unlocks <b>every episode</b> of this series — present and future.</p>
+                <p class="hint">Unlocks <b>every episode</b> of the series. “Any series” lets the person pick which series to unlock.</p>
             </div>
 
             <div class="field hidden" id="gen-series-field">
@@ -1394,13 +1408,23 @@ async function submitGenerate(e, getType) {
     if (expiryDays && Number(expiryDays) > 0) body.expires_in_days = Number(expiryDays);
 
     if (type === 'movie') {
-        const movieId = Number($('#gen-movie').value);
-        if (!movieId) { toast('Pick a film', 'err'); return; }
-        body.movie_id = movieId;
+        const val = $('#gen-movie').value;
+        if (val === 'any') {
+            body.kind = 'film';               // universal — the redeemer chooses the film
+        } else {
+            const movieId = Number(val);
+            if (!movieId) { toast('Pick a film', 'err'); return; }
+            body.movie_id = movieId;
+        }
     } else if (type === 'series') {
-        const seriesId = Number($('#gen-wseries').value);
-        if (!seriesId) { toast('Pick a series', 'err'); return; }
-        body.series_id = seriesId;
+        const val = $('#gen-wseries').value;
+        if (val === 'any') {
+            body.kind = 'series';             // universal — the redeemer chooses the series
+        } else {
+            const seriesId = Number(val);
+            if (!seriesId) { toast('Pick a series', 'err'); return; }
+            body.series_id = seriesId;
+        }
     } else {
         const episodeId = Number($('#gen-episode').value);
         if (!episodeId) { toast('Pick an episode', 'err'); return; }

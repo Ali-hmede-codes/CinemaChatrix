@@ -51,6 +51,10 @@ function resolveExpiry({ expires_at, expires_in_days }) {
 
 /**
  * Shape a joined code row into a friendly object with a `target` block.
+ *
+ * A universal code that hasn't been redeemed yet has no specific target, so
+ * it's shaped from its `kind` ('any-film' / 'any-series'). Once redeemed the
+ * chosen movie_id / series_id is set, so it shapes like any specific code.
  */
 function shapeCode(row) {
     let target;
@@ -73,13 +77,19 @@ function shapeCode(row) {
             series_title: row.ep_series_title,
             series_slug: row.ep_series_slug,
         };
-    } else {
+    } else if (row.series_id != null) {
         target = {
             type: 'series',
             id: row.series_id,
             title: row.code_series_title,
             slug: row.code_series_slug,
         };
+    } else if (row.kind === 'film') {
+        target = { type: 'any-film', id: null, title: 'Any film' };
+    } else if (row.kind === 'series') {
+        target = { type: 'any-series', id: null, title: 'Any series' };
+    } else {
+        target = { type: 'unknown', id: null, title: null };
     }
 
     const expired = row.expires_at ? new Date(row.expires_at) < new Date() : false;
@@ -107,33 +117,49 @@ function shapeCode(row) {
 
 /**
  * POST /api/codes/generate  (admin)
- * Body: { movie_id? | episode_id? | series_id?, quantity?, expires_at? | expires_in_days? }
+ * Body: { movie_id? | episode_id? | series_id? | kind?, quantity?, expires_at? | expires_in_days? }
  *
- * A series_id code unlocks EVERY episode of that series (present and future).
+ * Provide EITHER a specific target (movie_id / episode_id / series_id) OR a
+ * `kind` of 'film' | 'series' to mint a UNIVERSAL code — one the person
+ * redeeming it points at whichever film / series they choose. A series target
+ * (specific or universal) unlocks EVERY episode of that series.
  */
 function generate(req, res, next) {
     try {
-        const { movie_id, episode_id, series_id, quantity = 1 } = req.body || {};
+        const { movie_id, episode_id, series_id, kind, quantity = 1 } = req.body || {};
 
         const movieId = movie_id ? Number(movie_id) : null;
         const episodeId = episode_id ? Number(episode_id) : null;
         const seriesId = series_id ? Number(series_id) : null;
+        const genericKind = kind ? String(kind).toLowerCase().trim() : null;
 
-        // Exactly one target is required (matches the DB CHECK constraint).
-        const targetsProvided = [movieId, episodeId, seriesId].filter(Boolean).length;
-        if (targetsProvided !== 1) {
-            return response.error(res, 'Provide exactly one target: movie_id, episode_id, or series_id', 400);
-        }
-
-        // Verify the target exists.
-        if (movieId && !movieModel.findById(movieId)) {
-            return response.notFound(res, 'Film');
-        }
-        if (episodeId && !seriesModel.findEpisodeById(episodeId)) {
-            return response.notFound(res, 'Episode');
-        }
-        if (seriesId && !seriesModel.findById(seriesId)) {
-            return response.notFound(res, 'Series');
+        // Determine the code shape: universal (by `kind`) or specific (by target).
+        let codeKind = null;
+        if (genericKind) {
+            // Universal / redeemer-chosen code — no specific title.
+            if (genericKind !== 'film' && genericKind !== 'series') {
+                return response.error(res, "Universal code kind must be 'film' or 'series'", 400);
+            }
+            if (movieId || episodeId || seriesId) {
+                return response.error(res, 'A universal code cannot also target a specific title', 400);
+            }
+            codeKind = genericKind;
+        } else {
+            // Exactly one target is required (matches the DB CHECK constraint).
+            const targetsProvided = [movieId, episodeId, seriesId].filter(Boolean).length;
+            if (targetsProvided !== 1) {
+                return response.error(res, 'Provide exactly one target: movie_id, episode_id, series_id, or a kind', 400);
+            }
+            // Verify the target exists.
+            if (movieId && !movieModel.findById(movieId)) {
+                return response.notFound(res, 'Film');
+            }
+            if (episodeId && !seriesModel.findEpisodeById(episodeId)) {
+                return response.notFound(res, 'Episode');
+            }
+            if (seriesId && !seriesModel.findById(seriesId)) {
+                return response.notFound(res, 'Series');
+            }
         }
 
         // Validate quantity.
@@ -157,13 +183,16 @@ function generate(req, res, next) {
             movie_id: movieId,
             episode_id: episodeId,
             series_id: seriesId,
+            kind: codeKind,
             created_by: req.admin.id,
             expires_at: expiresAt,
         });
 
         const detailed = created.map((c) => shapeCode(codeModel.findByCodeDetailed(c.code)));
 
-        const targetLabel = movieId ? `movie=${movieId}` : episodeId ? `episode=${episodeId}` : `series=${seriesId}`;
+        const targetLabel = codeKind
+            ? `any-${codeKind}`
+            : movieId ? `movie=${movieId}` : episodeId ? `episode=${episodeId}` : `series=${seriesId}`;
         logger.info(`[codes] Generated ${qty} code(s) for ${targetLabel} by admin=${req.admin.id}`);
         return response.success(res, { codes: detailed, count: detailed.length }, 'Codes generated', 201);
     } catch (err) {
@@ -258,6 +287,43 @@ function redeem(req, res, next) {
         // Expired?
         if (record.expires_at && new Date(record.expires_at) < new Date()) {
             return response.forbidden(res, 'This code has expired');
+        }
+
+        // Universal (redeemer-chosen) code: bind it to the film / series the
+        // person opened, then activate. After this it behaves like any
+        // specific code (its movie_id / series_id is now set).
+        const isUniversal = record.kind
+            && record.movie_id == null && record.episode_id == null && record.series_id == null;
+        if (isUniversal) {
+            if (record.kind === 'film') {
+                const mId = movie_id ? Number(movie_id) : null;
+                if (!mId) {
+                    return response.error(res, 'This is a film code. Open the film you want, then enter the code to unlock it.', 400);
+                }
+                if (!movieModel.findById(mId)) return response.notFound(res, 'Film');
+                codeModel.bindAndActivate(record.id, device.id, { movie_id: mId });
+            } else {
+                // Series code — unlock a whole series. Accept a series_id, or
+                // derive it from an episode_id (e.g. redeemed on a locked episode).
+                let sId = series_id ? Number(series_id) : null;
+                if (!sId && episode_id) {
+                    const ep = seriesModel.findEpisodeById(Number(episode_id));
+                    if (ep) sId = ep.series_id;
+                }
+                if (!sId) {
+                    return response.error(res, 'This is a series code. Open the series you want, then enter the code to unlock it.', 400);
+                }
+                if (!seriesModel.findById(sId)) return response.notFound(res, 'Series');
+                codeModel.bindAndActivate(record.id, device.id, { series_id: sId });
+            }
+
+            const bound = shapeCode(codeModel.findByCodeDetailed(normalized));
+            logger.info(`[codes] Redeemed universal ${normalized} → device=${device.id} (${bound.target.type}=${bound.target.id})`);
+            return response.success(
+                res,
+                { unlocked: true, already_unlocked: false, target: bound.target },
+                'Code redeemed — content unlocked!'
+            );
         }
 
         // Optional: verify the code applies to the content being viewed.
