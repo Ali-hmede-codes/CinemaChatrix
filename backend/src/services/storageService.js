@@ -23,23 +23,31 @@ const logger = require('../utils/logger');
  * @returns {Promise<string>} destPath
  */
 async function downloadFromUrl(url, destPath) {
-    await fs.ensureDir(require('path').dirname(destPath));
+    await fs.ensureDir(path.dirname(destPath));
 
     const response = await axios({
         method: 'GET',
         url,
         responseType: 'stream',
-        timeout: 300000, // 5 min
+        timeout: 300000, // 5 min idle timeout (fires only when the socket stalls)
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
     });
 
-    const writer = fs.createWriteStream(destPath);
+    // Larger buffer → fewer syscalls → better throughput on big files.
+    const writer = fs.createWriteStream(destPath, { highWaterMark: 1024 * 1024 });
     response.data.pipe(writer);
 
     return new Promise((resolve, reject) => {
+        const fail = (err) => {
+            response.data.destroy();
+            writer.destroy();
+            fs.remove(destPath).catch(() => {}); // drop the partial file
+            reject(err);
+        };
         writer.on('finish', () => resolve(destPath));
-        writer.on('error', reject);
+        writer.on('error', fail);
+        response.data.on('error', fail);
     });
 }
 

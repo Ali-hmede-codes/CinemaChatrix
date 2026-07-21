@@ -99,7 +99,12 @@ const config = {
         ffmpegPath: resolveBinary('FFMPEG_PATH', 'ffmpeg-static', 'ffmpeg'),
         ffprobePath: resolveBinary('FFPROBE_PATH', 'ffprobe-static', 'ffprobe'),
         videoCrf: parseIntEnv('VIDEO_CRF', 23),
-        videoPreset: optional('VIDEO_PRESET', 'medium'),
+        videoPreset: optional('VIDEO_PRESET', 'veryfast'),
+        // Video encoder: 'auto' prefers hardware accel (NVENC/QSV/AMF) with a
+        // libx264 fallback; or force one (libx264, h264_nvenc, h264_qsv, ...).
+        // Note: sources already in H.264 within maxResolution are stream-copied
+        // (no re-encode), so this only matters when a real re-encode is needed.
+        videoEncoder: optional('VIDEO_ENCODER', 'auto'),
         maxResolution: parseIntEnv('MAX_RESOLUTION', 1080),
     },
 
