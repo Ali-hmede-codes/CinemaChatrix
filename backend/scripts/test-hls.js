@@ -21,6 +21,7 @@
  *   node test-hls.js "<url>" --segments 3 --timeout 15000
  *   node test-hls.js "<url>" --referer https://uqload.is/ --insecure
  *   node test-hls.js "<url>" --resolve 195.154.167.62   # pin to a specific CDN edge
+ *   node test-hls.js "<url>" --proxy http://1.2.3.4:8080   # exit via another IP
  *
  * Options:
  *   --segments <n>    How many leading segments to download   (default 2)
@@ -30,6 +31,7 @@
  *   --no-referer      Send no Referer at all
  *   --header "K: V"   Add an arbitrary request header (repeatable)
  *   --resolve <ip>    Pin the hostname to this IP (like curl --resolve)
+ *   --proxy <url>     Tunnel through an HTTP proxy, e.g. http://ip:port
  *   --user-agent <s>  Override the User-Agent
  *   --insecure        Ignore TLS certificate errors
  *
@@ -42,6 +44,8 @@ const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
 const dns = require('dns');
+const net = require('net');
+const tls = require('tls');
 const { URL } = require('url');
 
 /* ------------------------------------------------------------------ */
@@ -111,6 +115,7 @@ function request(rawUrl, opts = {}) {
         maxBytes = Infinity,
         insecure = false,
         resolveIp = null,
+        proxy = null,
     } = opts;
 
     return new Promise((resolve, reject) => {
@@ -152,7 +157,16 @@ function request(rawUrl, opts = {}) {
                 // Pin the connection to a specific IP (like `curl --resolve`);
                 // SNI + Host stay the real hostname so TLS still validates.
                 const family = resolveIp.includes(':') ? 6 : 4;
-                reqOptions.lookup = (_h, _o, cb) => cb(null, resolveIp, family);
+                reqOptions.lookup = (_h, opt, cb) =>
+                    opt && opt.all
+                        ? cb(null, [{ address: resolveIp, family }]) // Node 20+ autoSelectFamily
+                        : cb(null, resolveIp, family);
+            }
+            if (proxy && u.protocol === 'https:') {
+                // Tunnel HTTPS through an HTTP proxy (CONNECT) so the request
+                // exits from the proxy's IP instead of this machine's.
+                reqOptions.agent = false;
+                reqOptions.createConnection = proxyConnector(proxy, !insecure);
             }
 
             const req = lib.request(u, reqOptions, (res) => {
@@ -317,6 +331,61 @@ function resolveHost(hostname) {
     });
 }
 
+/**
+ * Build a `createConnection` that tunnels an HTTPS request through an HTTP
+ * proxy via CONNECT, then wraps the tunnel in TLS. Lets you exit from another
+ * IP/region when a CDN blocks your server's own IP.
+ *   proxy example: http://user:pass@1.2.3.4:8080
+ */
+function proxyConnector(proxyUrl, verifyTls) {
+    const p = new URL(proxyUrl);
+    const proxyPort = Number(p.port) || (p.protocol === 'https:' ? 443 : 80);
+
+    return function createConnection(options, callback) {
+        const targetHost = options.servername || options.host;
+        const targetPort = options.port || 443;
+
+        const toProxy =
+            p.protocol === 'https:'
+                ? tls.connect({ host: p.hostname, port: proxyPort, rejectUnauthorized: false })
+                : net.connect(proxyPort, p.hostname);
+
+        const sendConnect = () => {
+            let head = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n`;
+            if (p.username) {
+                const cred = `${decodeURIComponent(p.username)}:${decodeURIComponent(p.password)}`;
+                head += `Proxy-Authorization: Basic ${Buffer.from(cred).toString('base64')}\r\n`;
+            }
+            head += 'Connection: keep-alive\r\n\r\n';
+            toProxy.write(head);
+        };
+
+        toProxy.once(p.protocol === 'https:' ? 'secureConnect' : 'connect', sendConnect);
+        toProxy.on('error', (err) => callback(err));
+
+        let buf = Buffer.alloc(0);
+        const onData = (chunk) => {
+            buf = Buffer.concat([buf, chunk]);
+            if (buf.indexOf('\r\n\r\n') === -1) return;
+            toProxy.removeListener('data', onData);
+
+            const statusLine = buf.slice(0, buf.indexOf('\r\n')).toString();
+            const code = Number((/HTTP\/\d\.\d (\d{3})/.exec(statusLine) || [])[1]);
+            if (code !== 200) {
+                toProxy.destroy();
+                return callback(new Error(`Proxy CONNECT failed: ${statusLine || 'no response'}`));
+            }
+
+            const tlsSocket = tls.connect(
+                { socket: toProxy, servername: targetHost, rejectUnauthorized: verifyTls },
+                () => callback(null, tlsSocket)
+            );
+            tlsSocket.on('error', (err) => callback(err));
+        };
+        toProxy.on('data', onData);
+    };
+}
+
 /* ------------------------------------------------------------------ */
 /*  CLI parsing                                                        */
 /* ------------------------------------------------------------------ */
@@ -333,6 +402,7 @@ function parseArgs(argv) {
         userAgent: null,
         insecure: false,
         resolveIp: null,
+        proxy: null,
     };
     const rest = argv.slice(2);
     for (let i = 0; i < rest.length; i++) {
@@ -349,6 +419,7 @@ function parseArgs(argv) {
         }
         else if (a === '--user-agent') out.userAgent = rest[++i];
         else if (a === '--resolve') out.resolveIp = rest[++i];
+        else if (a === '--proxy') out.proxy = rest[++i];
         else if (a === '--insecure') out.insecure = true;
         else if (!a.startsWith('--')) out.url = a; // first bare arg = the URL
     }
@@ -414,6 +485,7 @@ async function main() {
         timeout: args.timeout,
         insecure: args.insecure,
         resolveIp: args.resolveIp,
+        proxy: args.proxy,
     };
 
     console.log(`${c.bold}HLS stream test${c.reset}`);
@@ -435,6 +507,7 @@ async function main() {
             if (ips.length) console.log(`${c.dim}DNS: ${host} -> ${ips.join(', ')}${c.reset}`);
         }
     }
+    if (args.proxy) console.log(`${c.dim}Proxy: ${args.proxy}${c.reset}`);
     console.log('');
 
     /* -- Step 1: fetch the playlist the user gave us ---------------- */
