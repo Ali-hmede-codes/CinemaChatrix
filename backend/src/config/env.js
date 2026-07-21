@@ -35,6 +35,32 @@ function parseIntEnv(key, fallback) {
     return isNaN(num) ? fallback : num;
 }
 
+/**
+ * Resolve an external binary path. Priority:
+ *   1. Explicit env var (a system-wide install or a custom path)
+ *   2. A bundled static binary shipped as an optional npm dependency
+ *   3. The bare command name — relies on the system PATH
+ * The static packages are optional; if they aren't installed we fall back to
+ * the PATH lookup so nothing breaks on environments that provide their own.
+ * @param {string} envKey
+ * @param {string} staticModule - npm module that exports the binary path
+ * @param {string} bareName - command name to try on PATH as a last resort
+ * @returns {string}
+ */
+function resolveBinary(envKey, staticModule, bareName) {
+    const fromEnv = process.env[envKey];
+    if (fromEnv) return fromEnv;
+    try {
+        const resolved = require(staticModule);
+        // ffmpeg-static exports the path string; ffprobe-static exports { path }.
+        const p = typeof resolved === 'string' ? resolved : resolved && resolved.path;
+        if (p) return p;
+    } catch {
+        /* optional dependency not installed — fall through to PATH */
+    }
+    return bareName;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */
 /* ------------------------------------------------------------------ */
@@ -67,8 +93,11 @@ const config = {
     },
 
     compression: {
-        ffmpegPath: optional('FFMPEG_PATH', 'ffmpeg'),
-        ffprobePath: optional('FFPROBE_PATH', 'ffprobe'),
+        // Defaults to the bundled ffmpeg-static / ffprobe-static binaries so
+        // HLS (.m3u8) and file imports work without a manual system install.
+        // Set FFMPEG_PATH / FFPROBE_PATH to override with a system FFmpeg.
+        ffmpegPath: resolveBinary('FFMPEG_PATH', 'ffmpeg-static', 'ffmpeg'),
+        ffprobePath: resolveBinary('FFPROBE_PATH', 'ffprobe-static', 'ffprobe'),
         videoCrf: parseIntEnv('VIDEO_CRF', 23),
         videoPreset: optional('VIDEO_PRESET', 'medium'),
         maxResolution: parseIntEnv('MAX_RESOLUTION', 1080),

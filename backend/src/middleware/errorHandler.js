@@ -45,8 +45,12 @@ function errorHandler(err, req, res, _next) {
         return response.error(res, 'Validation failed', 422, err.errors);
     }
 
-    // Default — don't leak internal error details in production
-    const message = process.env.NODE_ENV === 'production'
+    // Default — don't leak internal error details in production, EXCEPT for
+    // errors explicitly flagged as safe to show (operational, user-facing ones
+    // such as a bad import link or a missing FFmpeg). Truly unexpected errors
+    // still fall back to a generic message so we never leak internals.
+    const expose = err.expose === true || (typeof err.status === 'number' && err.status < 500);
+    const message = process.env.NODE_ENV === 'production' && !expose
         ? 'Internal server error'
         : err.message;
 

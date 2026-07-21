@@ -140,13 +140,30 @@ async function processVideo({ tempPath, url, category, slug, groupSlug = null, w
     if (isHls) {
         // 2a. HLS MUST go through FFmpeg — there is no raw file to fall back to.
         if (!compressionService.isAvailable()) {
-            throw new Error(
+            const err = new Error(
                 'This looks like a streaming (HLS/.m3u8) link, which needs FFmpeg to import. ' +
                 'FFmpeg was not found — install it and try again.'
             );
+            err.expose = true; // safe, actionable message (shown even in production)
+            err.status = 422;
+            throw err;
         }
         videoAbs = paths.buildVideoPath(category, slug, 'mp4', groupSlug);
-        await compressionService.compressVideo(url, videoAbs, { inputOptions: HLS_INPUT_OPTIONS });
+        try {
+            await compressionService.compressVideo(url, videoAbs, { inputOptions: HLS_INPUT_OPTIONS });
+        } catch (err) {
+            // FFmpeg failed mid-stream — drop any partial output and surface a
+            // clear, actionable reason instead of a bare 500.
+            await storageService.remove(videoAbs);
+            const e = new Error(
+                "Couldn't import this streaming link. The source may be offline, " +
+                'geo-blocked, or the signed URL may have expired — try a fresh link. ' +
+                `(FFmpeg: ${err.message})`
+            );
+            e.expose = true;
+            e.status = 422;
+            throw e;
+        }
         usedFfmpeg = true;
     } else if (compressionService.isAvailable()) {
         // 2b. Compress local file → final .mp4
