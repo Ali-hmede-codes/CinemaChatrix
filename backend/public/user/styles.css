@@ -738,6 +738,12 @@ input[type="range"]#pl-progress::-moz-range-thumb {
 .cat-rail { margin-bottom: 24px; }
 .cat-rail.cat-sub .rail-head h2 { font-size: 1.04rem; color: var(--text-dim); }
 .cat-rail.cat-sub .rail-head h2::before { background: var(--violet); box-shadow: none; height: 0.7em; }
+/* Parent main-category shown as a small superscript beside the sub name */
+.cat-parent {
+    font-family: var(--font-mono); font-weight: 700; font-size: 0.5em;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--violet);
+    margin-inline-start: 7px; opacity: 0.92; white-space: nowrap; vertical-align: super;
+}
 
 /* ---------------- Toast — printed receipt ---------------- */
 .toast {

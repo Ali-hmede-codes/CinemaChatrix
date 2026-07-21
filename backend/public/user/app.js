@@ -21,6 +21,7 @@ const state = {
     series: [],
     newly: [],
     categoryRows: [],           // [{ id, name, is_main, items:[...] }] for home rails
+    catNameById: new Map(),     // id → name for all categories (main + sub)
     carousel: { index: 0, count: 0, timer: null }, // featured fade carousel
     // Ownership sets (ids), derived from the library.
     ownedMovies: new Set(),
@@ -141,6 +142,19 @@ async function loadCatalog() {
     state.films = data.films || [];
     state.series = data.series || [];
     state.newly = data.newly || [];
+    state.catNameById = flattenCatNames(data.categories || []);
+}
+
+/** Flatten the category tree into a Map of id → name (mains and subs). */
+function flattenCatNames(tree) {
+    const map = new Map();
+    (function walk(nodes) {
+        for (const n of nodes) {
+            map.set(n.id, n.name);
+            if (n.children && n.children.length) walk(n.children);
+        }
+    })(tree);
+    return map;
 }
 
 async function loadCategoryRows() {
@@ -300,12 +314,19 @@ function goToSlide(i) {
 function renderCategoryRows() {
     const box = $('#home-category-rows');
     if (!box) return;
-    if (!state.categoryRows.length) { box.innerHTML = ''; return; }
-    box.innerHTML = state.categoryRows.map((row) => `
-        <div class="rail-block cat-rail ${row.is_main ? 'cat-main' : 'cat-sub'}">
-            <div class="rail-head"><h2 dir="auto">${esc(row.name)}</h2></div>
+    // Only sub-categories are shown (e.g. "Action"); the parent main category is
+    // rendered as a small superscript beside the sub's name — no main-only rails.
+    const rows = (state.categoryRows || []).filter((row) => !row.is_main);
+    if (!rows.length) { box.innerHTML = ''; return; }
+    box.innerHTML = rows.map((row) => {
+        const parentName = row.parent_name || state.catNameById.get(row.parent_id) || '';
+        const sup = parentName ? `<sup class="cat-parent" dir="auto">${esc(parentName)}</sup>` : '';
+        return `
+        <div class="rail-block cat-rail cat-sub">
+            <div class="rail-head"><h2 dir="auto">${esc(row.name)}${sup}</h2></div>
             <div class="rail">${row.items.map((it, i) => cardHtml(it, i)).join('')}</div>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 }
 
 /* ---------------- Movies / Series tabs ---------------- */
