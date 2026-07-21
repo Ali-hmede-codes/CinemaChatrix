@@ -20,6 +20,7 @@
  *   node test-hls.js "<m3u8-url>"
  *   node test-hls.js "<url>" --segments 3 --timeout 15000
  *   node test-hls.js "<url>" --referer https://uqload.is/ --insecure
+ *   node test-hls.js "<url>" --resolve 195.154.167.62   # pin to a specific CDN edge
  *
  * Options:
  *   --segments <n>    How many leading segments to download   (default 2)
@@ -28,6 +29,7 @@
  *   --referer <url>   Force a Referer (default: the link's own site)
  *   --no-referer      Send no Referer at all
  *   --header "K: V"   Add an arbitrary request header (repeatable)
+ *   --resolve <ip>    Pin the hostname to this IP (like curl --resolve)
  *   --user-agent <s>  Override the User-Agent
  *   --insecure        Ignore TLS certificate errors
  *
@@ -39,6 +41,7 @@
 const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
+const dns = require('dns');
 const { URL } = require('url');
 
 /* ------------------------------------------------------------------ */
@@ -107,6 +110,7 @@ function request(rawUrl, opts = {}) {
         maxRedirects = 5,
         maxBytes = Infinity,
         insecure = false,
+        resolveIp = null,
     } = opts;
 
     return new Promise((resolve, reject) => {
@@ -143,10 +147,15 @@ function request(rawUrl, opts = {}) {
                 ...headers,
             };
 
-            const req = lib.request(
-                u,
-                { method: 'GET', headers: reqHeaders, rejectUnauthorized: !insecure },
-                (res) => {
+            const reqOptions = { method: 'GET', headers: reqHeaders, rejectUnauthorized: !insecure };
+            if (resolveIp) {
+                // Pin the connection to a specific IP (like `curl --resolve`);
+                // SNI + Host stay the real hostname so TLS still validates.
+                const family = resolveIp.includes(':') ? 6 : 4;
+                reqOptions.lookup = (_h, _o, cb) => cb(null, resolveIp, family);
+            }
+
+            const req = lib.request(u, reqOptions, (res) => {
                     const status = res.statusCode;
 
                     // Follow redirects.
@@ -299,6 +308,15 @@ function defaultRefererFor(rawUrl) {
     }
 }
 
+/** Look up every IP a hostname resolves to on THIS machine (reveals GeoDNS). */
+function resolveHost(hostname) {
+    return new Promise((res) => {
+        dns.lookup(hostname, { all: true }, (err, addrs) => {
+            res(err ? [] : addrs.map((a) => a.address));
+        });
+    });
+}
+
 /* ------------------------------------------------------------------ */
 /*  CLI parsing                                                        */
 /* ------------------------------------------------------------------ */
@@ -314,6 +332,7 @@ function parseArgs(argv) {
         extraHeaders: {},
         userAgent: null,
         insecure: false,
+        resolveIp: null,
     };
     const rest = argv.slice(2);
     for (let i = 0; i < rest.length; i++) {
@@ -329,6 +348,7 @@ function parseArgs(argv) {
             if (idx > 0) out.extraHeaders[raw.slice(0, idx).trim()] = raw.slice(idx + 1).trim();
         }
         else if (a === '--user-agent') out.userAgent = rest[++i];
+        else if (a === '--resolve') out.resolveIp = rest[++i];
         else if (a === '--insecure') out.insecure = true;
         else if (!a.startsWith('--')) out.url = a; // first bare arg = the URL
     }
@@ -393,12 +413,28 @@ async function main() {
         headers: baseHeaders,
         timeout: args.timeout,
         insecure: args.insecure,
+        resolveIp: args.resolveIp,
     };
 
     console.log(`${c.bold}HLS stream test${c.reset}`);
     console.log(`${c.dim}${new Date().toISOString()}${c.reset}`);
     console.log(`URL: ${args.url}`);
     if (referer) console.log(`${c.dim}Referer: ${referer}${c.reset}`);
+
+    let host = null;
+    try {
+        host = new URL(args.url).hostname;
+    } catch {
+        /* ignore */
+    }
+    if (host) {
+        if (args.resolveIp) {
+            console.log(`${c.dim}DNS: ${host} pinned -> ${args.resolveIp} (--resolve)${c.reset}`);
+        } else {
+            const ips = await resolveHost(host);
+            if (ips.length) console.log(`${c.dim}DNS: ${host} -> ${ips.join(', ')}${c.reset}`);
+        }
+    }
     console.log('');
 
     /* -- Step 1: fetch the playlist the user gave us ---------------- */
