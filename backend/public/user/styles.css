@@ -623,6 +623,20 @@ img { display: block; max-width: 100%; }
 .player-stage { position: relative; width: 100%; height: 100%; background: #000; overflow: hidden; }
 #player-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
 
+/* Fill the fullscreen surface on every engine. Each vendor pseudo-class MUST
+   be its own rule: a browser that doesn't recognise one selector in a shared
+   list would otherwise drop the whole group. */
+.player-stage:fullscreen { width: 100%; height: 100%; }
+.player-stage:-webkit-full-screen { width: 100%; height: 100%; }
+.player-stage:-moz-full-screen { width: 100%; height: 100%; }
+.player-stage:-ms-fullscreen { width: 100%; height: 100%; }
+.player-stage:fullscreen #player-video { width: 100%; height: 100%; }
+.player-stage:-webkit-full-screen #player-video { width: 100%; height: 100%; }
+.player-stage:-moz-full-screen #player-video { width: 100%; height: 100%; }
+.player-stage:-ms-fullscreen #player-video { width: 100%; height: 100%; }
+/* Last-resort "fullscreen" for old TV browsers with no Fullscreen API. */
+.player-root.pseudo-fs { position: fixed; inset: 0; z-index: 2147483647; }
+
 .player-status {
     position: absolute; inset: 0; z-index: 3;
     display: flex; flex-direction: column; align-items: center; justify-content: center;

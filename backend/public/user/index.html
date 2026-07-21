@@ -183,7 +183,7 @@
     <!-- ============ PLAYER OVERLAY ============ -->
     <div class="player-root hidden" id="player-root">
         <div class="player-stage" id="player-stage">
-            <video id="player-video" playsinline preload="metadata"></video>
+            <video id="player-video" playsinline webkit-playsinline x-webkit-airplay="allow" preload="metadata" controlslist="nodownload"></video>
 
             <!-- Loading / error states -->
             <div class="player-status" id="player-status">
@@ -224,7 +224,7 @@
                             <svg viewBox="0 0 24 24" width="22" height="22" id="pl-mute-ico"><path fill="currentColor" d="M4 9v6h4l5 5V4L8 9H4Zm11.5 3a3 3 0 0 0-1.7-2.7v5.4A3 3 0 0 0 15.5 12Z"/></svg>
                         </button>
                         <button class="pl-btn" id="pl-fs" aria-label="Fullscreen">
-                            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 4h6v2H6v4H4V4Zm10 0h6v6h-2V6h-4V4ZM4 14h2v4h4v2H4v-6Zm14 0h2v6h-6v-2h4v-4Z"/></svg>
+                            <svg viewBox="0 0 24 24" width="22" height="22"><path id="pl-fs-ico" fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
                         </button>
                     </div>
                 </div>

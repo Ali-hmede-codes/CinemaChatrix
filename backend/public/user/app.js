@@ -848,7 +848,8 @@ function closePlayer() {
     player.video.load();
     player.root.classList.add('hidden');
     player.ctx = null;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    exitFullscreen();
+    player.root.classList.remove('pseudo-fs');
     document.body.style.overflow = sheetRoot.classList.contains('hidden') ? '' : 'hidden';
 }
 
@@ -904,6 +905,107 @@ function showUi() {
     }, 3200);
 }
 
+/* ---- Fullscreen (cross-device) ----
+   Fullscreen behaves very differently across devices, so we try, in order:
+     1. The standard Fullscreen API on the whole stage — desktop, Android,
+        iPad and modern smart-TVs. This keeps our own controls on screen.
+        Older TV browsers expose it only behind a webkit/moz/ms prefix.
+     2. iPhone (iOS Safari) supports NO element fullscreen — the only way in
+        is the native video method webkitEnterFullscreen(), which shows
+        Apple's built-in controls. This is what fixes iPhone.
+     3. Very old TV browsers with no Fullscreen API at all fall back to a CSS
+        "pseudo fullscreen" that simply pins the player above everything. */
+function fsElement() {
+    return document.fullscreenElement
+        || document.webkitFullscreenElement
+        || document.webkitCurrentFullScreenElement
+        || document.mozFullScreenElement
+        || document.msFullscreenElement
+        || null;
+}
+function requestElementFs(el) {
+    const fn = el.requestFullscreen
+        || el.webkitRequestFullscreen
+        || el.webkitRequestFullScreen
+        || el.mozRequestFullScreen
+        || el.msRequestFullscreen;
+    return fn ? fn.call(el) : null;
+}
+function exitDocumentFs() {
+    const fn = document.exitFullscreen
+        || document.webkitExitFullscreen
+        || document.webkitCancelFullScreen
+        || document.mozCancelFullScreen
+        || document.msExitFullscreen;
+    return fn ? fn.call(document) : null;
+}
+
+/** True when the player is fullscreen by ANY of the three mechanisms. */
+function isPlayerFullscreen() {
+    return !!fsElement()
+        || !!player.video.webkitDisplayingFullscreen
+        || player.root.classList.contains('pseudo-fs');
+}
+
+/** iOS-only native video fullscreen. Returns true if it was invoked. */
+function enterVideoFullscreen(v) {
+    const enter = v.webkitEnterFullscreen || v.webkitEnterFullScreen;
+    if (enter) {
+        try { enter.call(v); return true; } catch { /* metadata not ready yet */ }
+    }
+    return false;
+}
+
+function enterFullscreen() {
+    const v = player.video;
+    // 1. Standard element fullscreen (keeps our custom controls visible).
+    if (player.stage.requestFullscreen || player.stage.webkitRequestFullscreen
+        || player.stage.webkitRequestFullScreen || player.stage.mozRequestFullScreen
+        || player.stage.msRequestFullscreen) {
+        try {
+            const p = requestElementFs(player.stage);
+            if (p && typeof p.catch === 'function') p.catch(() => { if (!enterVideoFullscreen(v)) pseudoFs(true); });
+            return;
+        } catch { /* fall through to the video / CSS fallbacks */ }
+    }
+    // 2. iPhone: native video fullscreen.
+    if (enterVideoFullscreen(v)) return;
+    // 3. Ancient TV browsers: CSS pseudo-fullscreen.
+    pseudoFs(true);
+}
+
+function exitFullscreen() {
+    if (fsElement()) { try { exitDocumentFs(); } catch { /* ignore */ } return; }
+    const v = player.video;
+    if (v.webkitDisplayingFullscreen && v.webkitExitFullscreen) {
+        try { v.webkitExitFullscreen(); } catch { /* ignore */ }
+        return;
+    }
+    pseudoFs(false);
+}
+
+function pseudoFs(on) {
+    player.root.classList.toggle('pseudo-fs', on);
+    syncFsButton();
+}
+
+function toggleFullscreen() {
+    if (isPlayerFullscreen()) exitFullscreen(); else enterFullscreen();
+}
+
+const FS_ENTER_SVG = 'M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z';
+const FS_EXIT_SVG = 'M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z';
+
+/** Keep the fullscreen button's icon + label in sync with the real state. */
+function syncFsButton() {
+    const ico = $('#pl-fs-ico');
+    const btn = $('#pl-fs');
+    if (!ico || !btn) return;
+    const on = isPlayerFullscreen();
+    ico.setAttribute('d', on ? FS_EXIT_SVG : FS_ENTER_SVG);
+    btn.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen');
+}
+
 function initPlayerControls() {
     const v = player.video;
     v.addEventListener('timeupdate', updateSeek);
@@ -928,10 +1030,15 @@ function initPlayerControls() {
         player.rateBtn.textContent = `${next}×`;
     });
 
-    $('#pl-fs').addEventListener('click', () => {
-        if (document.fullscreenElement) { document.exitFullscreen(); return; }
-        (player.stage.requestFullscreen || player.stage.webkitRequestFullscreen || (() => {})).call(player.stage);
-    });
+    $('#pl-fs').addEventListener('click', toggleFullscreen);
+
+    // Keep the fullscreen icon/state correct no matter how it changed: our
+    // button, the keyboard, iOS's native gesture, or a TV remote's Back key.
+    ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange']
+        .forEach((ev) => document.addEventListener(ev, syncFsButton));
+    v.addEventListener('webkitbeginfullscreen', syncFsButton);
+    v.addEventListener('webkitendfullscreen', syncFsButton);
+    syncFsButton();
 
     // Seek slider
     const startSeek = () => { player.seeking = true; };
@@ -964,7 +1071,7 @@ function initPlayerControls() {
         else if (e.key === 'ArrowLeft') v.currentTime = Math.max(0, v.currentTime - 10);
         else if (e.key === 'f') $('#pl-fs').click();
         else if (e.key === 'm') v.muted = !v.muted;
-        else if (e.key === 'Escape' && !document.fullscreenElement) closePlayer();
+        else if (e.key === 'Escape') { if (isPlayerFullscreen()) exitFullscreen(); else closePlayer(); }
     });
 }
 
