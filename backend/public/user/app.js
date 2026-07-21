@@ -662,13 +662,15 @@ async function submitRedeem(e) {
     }
 }
 
-/* Auto-format the code input as CHX-XXXX-XXXX while typing. */
+/* Auto-format the code input as CHX-XXXX-XXXX-XXXX while typing.
+   Still accepts shorter legacy codes (CHX-XXXX-XXXX). */
 function formatCodeInput(el) {
     let v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (v.length > 11) v = v.slice(0, 11);
+    if (v.length > 15) v = v.slice(0, 15);   // CHX + 12 body chars
     let out = v;
     if (v.length > 3) out = v.slice(0, 3) + '-' + v.slice(3);
     if (v.length > 7) out = v.slice(0, 3) + '-' + v.slice(3, 7) + '-' + v.slice(7);
+    if (v.length > 11) out = v.slice(0, 3) + '-' + v.slice(3, 7) + '-' + v.slice(7, 11) + '-' + v.slice(11);
     el.value = out;
 }
 

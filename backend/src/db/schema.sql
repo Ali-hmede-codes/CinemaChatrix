@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS content_categories (
 -- all-NULL row and violate chk_code_target.)
 CREATE TABLE IF NOT EXISTS codes (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    code       TEXT UNIQUE NOT NULL,    -- e.g. "CHX-7K3M-9P2X"
+    code       TEXT UNIQUE NOT NULL,    -- e.g. "CHX-7K3M-9P2X-4H8T"
     movie_id   INTEGER,
     episode_id INTEGER,
     series_id  INTEGER,                 -- set for a whole-series code

@@ -3,14 +3,17 @@
  *
  * Produces cryptographically-random unlock codes in the format:
  *
- *     CHX-XXXX-XXXX
+ *     CHX-XXXX-XXXX-XXXX
  *
  *   CHX  = fixed prefix (CinemaChatrix)
  *   XXXX = 4 random chars from an unambiguous charset (no 0/O/1/I)
- *   XXXX = 4 random chars
+ *          × 3 groups = 12 random characters
  *
- * ~1.07e18 possible combinations, so collisions are astronomically
+ * 32^12 ≈ 1.2e18 possible combinations, so collisions are astronomically
  * unlikely — but we still verify uniqueness against the database.
+ *
+ * Older 2-group codes (CHX-XXXX-XXXX) stay valid when redeeming, for
+ * backward compatibility with codes issued before this change.
  */
 
 const crypto = require('crypto');
@@ -19,6 +22,9 @@ const crypto = require('crypto');
 const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PREFIX = 'CHX';
 const GROUP_LEN = 4;
+const GROUP_COUNT = 3;   // groups in a newly-generated code → CHX-XXXX-XXXX-XXXX
+const MIN_GROUPS = 2;    // still accept legacy 2-group codes when redeeming
+const MAX_GROUPS = 6;    // upper bound so normalize rejects absurdly long input
 
 /* ------------------------------------------------------------------ */
 /*  Generation                                                         */
@@ -44,11 +50,13 @@ function randomGroup(len = GROUP_LEN) {
 }
 
 /**
- * Generate one code, e.g. "CHX-7K3M-9P2X".
+ * Generate one code, e.g. "CHX-7K3M-9P2X-4H8T" (GROUP_COUNT groups).
  * @returns {string}
  */
 function generateCode() {
-    return `${PREFIX}-${randomGroup()}-${randomGroup()}`;
+    const groups = [];
+    for (let i = 0; i < GROUP_COUNT; i++) groups.push(randomGroup());
+    return `${PREFIX}-${groups.join('-')}`;
 }
 
 /**
@@ -81,7 +89,10 @@ function generateUnique(quantity, existsFn) {
 /**
  * Normalize user-typed input into the canonical code format.
  * Uppercases, trims, strips spaces, and tolerates missing/extra dashes
- * so "chx 7k3m 9p2x" and "CHX7K3M9P2X" both resolve correctly.
+ * so "chx 7k3m 9p2x 4h8t" and "CHX7K3M9P2X4H8T" both resolve correctly.
+ *
+ * Accepts any whole number of 4-char groups within [MIN_GROUPS, MAX_GROUPS],
+ * so new 3-group codes and legacy 2-group codes both parse.
  *
  * @param {string} raw
  * @returns {string|null} normalized code, or null if it can't be parsed
@@ -92,9 +103,16 @@ function normalize(raw) {
     if (!cleaned.startsWith(PREFIX)) return null;
 
     const body = cleaned.slice(PREFIX.length);
-    if (body.length !== GROUP_LEN * 2) return null;
+    const groupCount = body.length / GROUP_LEN;
+    if (!Number.isInteger(groupCount) || groupCount < MIN_GROUPS || groupCount > MAX_GROUPS) {
+        return null;
+    }
 
-    return `${PREFIX}-${body.slice(0, GROUP_LEN)}-${body.slice(GROUP_LEN)}`;
+    const groups = [];
+    for (let i = 0; i < body.length; i += GROUP_LEN) {
+        groups.push(body.slice(i, i + GROUP_LEN));
+    }
+    return `${PREFIX}-${groups.join('-')}`;
 }
 
 module.exports = {
