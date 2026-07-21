@@ -29,14 +29,22 @@ const logger = require('../utils/logger');
 
 const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'webm', 'm4v', 'ts'];
 
-// Input-level FFmpeg flags for remote HLS ingest. The protocol whitelist lets
-// the HLS demuxer follow the playlist over http(s), and the reconnect flags
-// keep long segment downloads alive through transient network hiccups.
+// Input-level FFmpeg flags for remote HLS ingest. Each flag and its value is a
+// SEPARATE array element on purpose: fluent-ffmpeg only auto-splits an option
+// string when it contains exactly one space, so multi-word values (like the
+// User-Agent) must stand alone or they'd be mangled.
+//   - protocol whitelist: lets the HLS demuxer follow the playlist over http(s)
+//   - user_agent: pose as a browser so CDNs that block FFmpeg's default
+//     "Lavf/..." agent still serve the playlist/segments
+//   - reconnect flags: keep long segment downloads alive through hiccups
+// Note: some hosts additionally require a matching Referer or lock the signed
+// URL to the requesting IP/session — those links can't be imported server-side.
 const HLS_INPUT_OPTIONS = [
-    '-protocol_whitelist file,http,https,tcp,tls,crypto',
-    '-reconnect 1',
-    '-reconnect_streamed 1',
-    '-reconnect_delay_max 5',
+    '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
+    '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    '-reconnect', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '5',
 ];
 
 /**
