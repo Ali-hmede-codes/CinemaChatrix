@@ -25,7 +25,9 @@
  *   --segments <n>    How many leading segments to download   (default 2)
  *   --timeout <ms>    Per-request timeout in milliseconds      (default 15000)
  *   --max-bytes <n>   Cap bytes downloaded per segment         (default 1500000)
- *   --referer <url>   Send a Referer header (some CDNs need it)
+ *   --referer <url>   Force a Referer (default: the link's own site)
+ *   --no-referer      Send no Referer at all
+ *   --header "K: V"   Add an arbitrary request header (repeatable)
  *   --user-agent <s>  Override the User-Agent
  *   --insecure        Ignore TLS certificate errors
  *
@@ -281,6 +283,22 @@ function resolveUrl(uri, baseUrl) {
     return new URL(uri, baseUrl).toString();
 }
 
+/**
+ * Guess a sensible Referer for a CDN link: the registrable site of the host,
+ * e.g. "strm10.uqload.is" -> "https://uqload.is/". Browsers send this when the
+ * player loads the stream, and hotlink-protected CDNs require it to match.
+ */
+function defaultRefererFor(rawUrl) {
+    try {
+        const { hostname } = new URL(rawUrl);
+        const parts = hostname.split('.');
+        const site = parts.length > 2 ? parts.slice(-2).join('.') : hostname;
+        return `https://${site}/`;
+    } catch {
+        return null;
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /*  CLI parsing                                                        */
 /* ------------------------------------------------------------------ */
@@ -292,6 +310,8 @@ function parseArgs(argv) {
         timeout: 15000,
         maxBytes: 1_500_000,
         referer: null,
+        noReferer: false,
+        extraHeaders: {},
         userAgent: null,
         insecure: false,
     };
@@ -302,6 +322,12 @@ function parseArgs(argv) {
         else if (a === '--timeout') out.timeout = Number(rest[++i]) || out.timeout;
         else if (a === '--max-bytes') out.maxBytes = Number(rest[++i]) || out.maxBytes;
         else if (a === '--referer') out.referer = rest[++i];
+        else if (a === '--no-referer') out.noReferer = true;
+        else if (a === '--header') {
+            const raw = rest[++i] || '';
+            const idx = raw.indexOf(':');
+            if (idx > 0) out.extraHeaders[raw.slice(0, idx).trim()] = raw.slice(idx + 1).trim();
+        }
         else if (a === '--user-agent') out.userAgent = rest[++i];
         else if (a === '--insecure') out.insecure = true;
         else if (!a.startsWith('--')) out.url = a; // first bare arg = the URL
@@ -321,9 +347,16 @@ function printResponseMeta(res) {
     }
 }
 
+function printBodySnippet(res, max = 300) {
+    const body = (res.body || Buffer.alloc(0)).toString('utf8').replace(/\s+/g, ' ').trim();
+    if (body) {
+        console.log(`${c.dim}    CDN said: ${body.slice(0, max)}${body.length > max ? '…' : ''}${c.reset}`);
+    }
+}
+
 function hintForStatus(status) {
     if (status === 403 || status === 401) {
-        return 'Access denied. The token in the URL (t=/s=/e=) is time-limited and has likely expired, or the CDN requires a matching Referer. Try re-copying a fresh link, or add --referer <embed-page-url>.';
+        return 'Access denied. If it plays in a browser, the CDN is checking the Referer — pass --referer with the exact embed page URL (e.g. https://uqload.is/embed-XXXX.html). Otherwise the signed token (t=/s=/e=) has expired or is IP-locked, so generate a fresh link from THIS machine.';
     }
     if (status === 410) return 'Gone. The signed link has expired — grab a fresh one.';
     if (status === 404) return 'Not found. The playlist path is wrong or was removed.';
@@ -339,13 +372,19 @@ function hintForStatus(status) {
 async function main() {
     const args = parseArgs(process.argv);
 
-    const baseHeaders = {};
-    if (args.referer) {
-        baseHeaders.Referer = args.referer;
+    // Browsers send a Referer/Origin for the embed site, and hotlink-protected
+    // CDNs like this one reject requests without it — that's the usual "plays in
+    // the browser, 403 from a script" cause. Default to the link's own site.
+    let referer = args.referer;
+    if (!referer && !args.noReferer) referer = defaultRefererFor(args.url);
+
+    const baseHeaders = { ...args.extraHeaders };
+    if (referer) {
+        baseHeaders.Referer = referer;
         try {
-            baseHeaders.Origin = new URL(args.referer).origin;
+            baseHeaders.Origin = new URL(referer).origin;
         } catch {
-            /* ignore bad referer */
+            /* ignore a malformed referer */
         }
     }
     if (args.userAgent) baseHeaders['User-Agent'] = args.userAgent;
@@ -358,7 +397,9 @@ async function main() {
 
     console.log(`${c.bold}HLS stream test${c.reset}`);
     console.log(`${c.dim}${new Date().toISOString()}${c.reset}`);
-    console.log(`URL: ${args.url}\n`);
+    console.log(`URL: ${args.url}`);
+    if (referer) console.log(`${c.dim}Referer: ${referer}${c.reset}`);
+    console.log('');
 
     /* -- Step 1: fetch the playlist the user gave us ---------------- */
     console.log(`${c.bold}[1/3] Fetching playlist...${c.reset}`);
@@ -380,6 +421,7 @@ async function main() {
 
     if (playlistRes.status !== 200) {
         console.log(bad(`  ✗ Playlist request failed (HTTP ${playlistRes.status}).`));
+        printBodySnippet(playlistRes);
         const hint = hintForStatus(playlistRes.status);
         if (hint) console.log(warn(`  → ${hint}`));
         return finish(false);
@@ -418,6 +460,7 @@ async function main() {
         }
         if (mediaRes.status !== 200) {
             console.log(bad(`  ✗ Variant playlist failed (HTTP ${mediaRes.status}).`));
+            printBodySnippet(mediaRes);
             const hint = hintForStatus(mediaRes.status);
             if (hint) console.log(warn(`  → ${hint}`));
             return finish(false);
@@ -478,6 +521,7 @@ async function main() {
             } else {
                 anyFailed = true;
                 console.log(`${label} · ${humanBytes(segRes.bytes)} ${bad('✗')}`);
+                printBodySnippet(segRes);
                 const hint = hintForStatus(segRes.status);
                 if (hint) console.log(warn(`    → ${hint}`));
             }
