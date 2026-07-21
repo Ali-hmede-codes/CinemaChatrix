@@ -21,6 +21,9 @@ const state = {
     codeQuery: '',
     codeStatus: '',
     codeSummary: null,
+    users: [],
+    userQuery: '',
+    me: null,            // the currently signed-in admin
 };
 
 /* ---------------- Token helpers ---------------- */
@@ -245,6 +248,7 @@ $('#login-form').addEventListener('submit', async (e) => {
             body: { username: $('#username').value, password: $('#password').value },
         });
         setToken(data.data.token);
+        state.me = data.data.admin;
         $('#who').textContent = `👤 ${data.data.admin.username}`;
         showApp();
         toast('Welcome back!');
@@ -272,8 +276,10 @@ $$('.tab').forEach((tab) => {
         $('#tab-series').classList.toggle('hidden', name !== 'series');
         $('#tab-categories').classList.toggle('hidden', name !== 'categories');
         $('#tab-codes').classList.toggle('hidden', name !== 'codes');
+        $('#tab-users').classList.toggle('hidden', name !== 'users');
         if (name === 'codes') loadCodes();
         if (name === 'categories') loadCategories();
+        if (name === 'users') loadUsers();
     });
 });
 
@@ -1466,6 +1472,217 @@ function renderGenerateResult(codes) {
 }
 
 /* ============================================================
+   USERS  (admin panel accounts)
+   ============================================================ */
+async function loadUsers() {
+    const box = $('#users-list');
+    box.innerHTML = '<div class="empty">Loading users…</div>';
+    try {
+        const { data } = await api('/users');
+        state.users = data.users || [];
+        renderUsers();
+    } catch (err) {
+        box.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    }
+}
+
+function renderUsers() {
+    const box = $('#users-list');
+    const q = state.userQuery.toLowerCase();
+
+    $('#users-count').textContent = state.users.length;
+
+    let users = state.users;
+    if (q) users = users.filter((u) => u.username.toLowerCase().includes(q));
+
+    if (!state.users.length) {
+        box.innerHTML = `<div class="empty"><div class="em-icon">👥</div>No users yet.
+            <div><button class="btn btn-primary" id="empty-add-user">＋ Add your first user</button></div></div>`;
+        $('#empty-add-user')?.addEventListener('click', () => openUserModal(null));
+        return;
+    }
+    if (!users.length) {
+        box.innerHTML = '<div class="empty"><div class="em-icon">🔍</div>No users match your search.</div>';
+        return;
+    }
+
+    box.innerHTML = `
+        <div class="table-wrap">
+        <table class="codes-table">
+            <thead><tr>
+                <th>User</th><th>Role</th><th>Created</th><th></th>
+            </tr></thead>
+            <tbody>${users.map(userRow).join('')}</tbody>
+        </table>
+        </div>`;
+}
+
+function userRow(u) {
+    const isMe = state.me && Number(state.me.id) === Number(u.id);
+    const roleLabel = u.role === 'superadmin' ? 'Super Admin' : 'Admin';
+    return `
+    <tr data-id="${u.id}">
+        <td><span class="user-name">${esc(u.username)}</span>${isMe ? ' <span class="ep-tag">You</span>' : ''}</td>
+        <td><span class="role-pill ${u.role === 'superadmin' ? 'super' : ''}">${roleLabel}</span></td>
+        <td class="dim">${fmtDate(u.created_at)}</td>
+        <td class="row-act">
+            <button class="icon-btn" data-act="pw-user" data-id="${u.id}" title="Change password">🔑</button>
+            <button class="icon-btn edit" data-act="edit-user" data-id="${u.id}" title="Edit">✎</button>
+            <button class="icon-btn del" data-act="del-user" data-id="${u.id}" title="Delete"${isMe ? ' disabled' : ''}>🗑</button>
+        </td>
+    </tr>`;
+}
+
+/* Users interactions (event delegation) */
+$('#users-list').addEventListener('click', (e) => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const id = Number(el.dataset.id);
+    const user = state.users.find((u) => u.id === id);
+    if (el.dataset.act === 'edit-user') openUserModal(user);
+    else if (el.dataset.act === 'pw-user') openPasswordModal(user);
+    else if (el.dataset.act === 'del-user') deleteUser(user);
+});
+
+$('#users-search').addEventListener('input', (e) => {
+    state.userQuery = e.target.value.trim();
+    renderUsers();
+});
+$('#btn-add-user').addEventListener('click', () => openUserModal(null));
+
+/* ---- Add / Edit user modal ---- */
+function openUserModal(user) {
+    const isEdit = !!user;
+    const u = user || {};
+    const role = u.role === 'superadmin' ? 'superadmin' : 'admin';
+    const passwordSection = isEdit ? '' : `
+        <div class="grid-2">
+            <div class="field">
+                <label>Password *</label>
+                <input name="password" type="password" autocomplete="new-password" required placeholder="At least 6 characters" />
+            </div>
+            <div class="field">
+                <label>Confirm password *</label>
+                <input name="password2" type="password" autocomplete="new-password" required placeholder="Repeat password" />
+            </div>
+        </div>`;
+
+    openModal(isEdit ? 'Edit User' : 'Add User', `
+        <form id="user-form">
+            <div class="field">
+                <label>Username *</label>
+                <input name="username" type="text" required autocomplete="off"
+                    placeholder="e.g. jordan" value="${attr(u.username)}" />
+            </div>
+            <div class="field">
+                <label>Role</label>
+                <select name="role">
+                    <option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option>
+                    <option value="superadmin" ${role === 'superadmin' ? 'selected' : ''}>Super Admin</option>
+                </select>
+            </div>
+            ${passwordSection}
+            <div class="form-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn btn-primary">${isEdit ? 'Save changes' : 'Create user'}</button>
+            </div>
+        </form>
+    `);
+    $('#user-form').addEventListener('submit', (e) => submitUser(e, user));
+}
+
+async function submitUser(e, user) {
+    e.preventDefault();
+    const form = e.target;
+    const isEdit = !!user;
+    const username = form.username.value.trim();
+    const role = form.role.value;
+
+    if (!username) { toast('Username is required', 'err'); return; }
+    if (!isEdit) {
+        const pw = form.password.value;
+        const pw2 = form.password2.value;
+        if (pw.length < 6) { toast('Password must be at least 6 characters', 'err'); return; }
+        if (pw !== pw2) { toast('Passwords do not match', 'err'); return; }
+    }
+
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+        if (isEdit) {
+            await api(`/users/${user.id}`, { method: 'PUT', body: { username, role } });
+            toast('User updated');
+        } else {
+            await api('/users', { method: 'POST', body: { username, role, password: form.password.value } });
+            toast('User created');
+        }
+        closeModal();
+        loadUsers();
+    } catch (err) {
+        toast(err.message, 'err');
+        btn.disabled = false;
+    }
+}
+
+/* ---- Change password modal ---- */
+function openPasswordModal(user) {
+    if (!user) return;
+    const isMe = state.me && Number(state.me.id) === Number(user.id);
+    openModal(`Change Password · ${esc(user.username)}`, `
+        <form id="password-form">
+            ${isMe ? '<p class="hint cat-context">You\'re changing your own password — you\'ll keep using this session, but sign in with the new password next time.</p>' : ''}
+            <div class="field">
+                <label>New password *</label>
+                <input name="password" type="password" autocomplete="new-password" required placeholder="At least 6 characters" />
+            </div>
+            <div class="field">
+                <label>Confirm new password *</label>
+                <input name="password2" type="password" autocomplete="new-password" required placeholder="Repeat password" />
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn btn-primary">Change password</button>
+            </div>
+        </form>
+    `);
+    $('#password-form').addEventListener('submit', (e) => submitPassword(e, user));
+}
+
+async function submitPassword(e, user) {
+    e.preventDefault();
+    const form = e.target;
+    const pw = form.password.value;
+    const pw2 = form.password2.value;
+    if (pw.length < 6) { toast('Password must be at least 6 characters', 'err'); return; }
+    if (pw !== pw2) { toast('Passwords do not match', 'err'); return; }
+
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+        await api(`/users/${user.id}/password`, { method: 'PUT', body: { password: pw } });
+        toast('Password changed');
+        closeModal();
+    } catch (err) {
+        toast(err.message, 'err');
+        btn.disabled = false;
+    }
+}
+
+async function deleteUser(user) {
+    if (!user) return;
+    if (state.me && Number(state.me.id) === Number(user.id)) {
+        toast('You cannot delete the account you are signed in with', 'err');
+        return;
+    }
+    if (!confirm(`Delete user "${user.username}"? They will lose access to the admin panel.`)) return;
+    try {
+        await api(`/users/${user.id}`, { method: 'DELETE' });
+        toast('User deleted');
+        loadUsers();
+    } catch (err) { toast(err.message, 'err'); }
+}
+
+/* ============================================================
    SKELETON LOADERS
    ============================================================ */
 function skeletonGrid(n) {
@@ -1486,6 +1703,7 @@ function skeletonEps(n) {
     if (!getToken()) return showLogin();
     try {
         const { data } = await api('/auth/me');
+        state.me = data.admin;
         $('#who').textContent = `👤 ${data.admin.username}`;
         showApp();
     } catch {

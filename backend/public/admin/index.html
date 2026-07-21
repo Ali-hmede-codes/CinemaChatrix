@@ -21,7 +21,7 @@
             <form id="login-form">
                 <div class="field">
                     <label for="username">Username</label>
-                    <input id="username" name="username" type="text" autocomplete="username" value="admin" required />
+                    <input id="username" name="username" type="text" autocomplete="username" placeholder="Enter your username" required />
                 </div>
                 <div class="field">
                     <label for="password">Password</label>
@@ -29,7 +29,6 @@
                 </div>
                 <button type="submit" class="btn btn-primary btn-block" id="login-btn">Sign In</button>
             </form>
-            <p class="login-hint">Default: <code>admin</code> / <code>ChangeMe123!</code></p>
         </div>
     </div>
 
@@ -44,6 +43,7 @@
                 <button class="tab" data-tab="series">Series</button>
                 <button class="tab" data-tab="categories">Categories</button>
                 <button class="tab" data-tab="codes">Codes</button>
+                <button class="tab" data-tab="users">Users</button>
             </nav>
             <div class="topbar-right">
                 <span id="who" class="who"></span>
@@ -133,6 +133,25 @@
                 </div>
                 <div class="code-stats" id="codes-stats"></div>
                 <div id="codes-list"></div>
+            </section>
+
+            <!-- ============ USERS ============ -->
+            <section id="tab-users" class="tab-panel hidden">
+                <div class="panel-head">
+                    <div class="panel-title">
+                        <h2>Users</h2>
+                        <span class="count-pill" id="users-count">0</span>
+                    </div>
+                    <div class="head-actions">
+                        <div class="search-box">
+                            <span class="search-ico">🔎</span>
+                            <input id="users-search" type="search" placeholder="Search users…" />
+                        </div>
+                        <button class="btn btn-primary" id="btn-add-user">＋ Add User</button>
+                    </div>
+                </div>
+                <p class="cat-intro">These are the accounts that can sign in to this admin panel. Add teammates, rename them, reset a password, or remove access. You can't delete the account you're signed in with, or the last remaining admin.</p>
+                <div id="users-list"></div>
             </section>
         </main>
     </div>

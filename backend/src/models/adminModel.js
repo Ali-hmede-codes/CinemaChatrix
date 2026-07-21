@@ -61,9 +61,58 @@ function updatePassword(id, passwordHash) {
     return info.changes > 0;
 }
 
+/**
+ * List every admin account (never exposes password hashes), oldest first.
+ * @returns {object[]} admin rows (id, username, role, created_at)
+ */
+function findAll() {
+    return getDb()
+        .prepare('SELECT id, username, role, created_at FROM admins ORDER BY created_at ASC, id ASC')
+        .all();
+}
+
+/**
+ * Count how many admin accounts exist. Used to block deleting the last one.
+ * @returns {number}
+ */
+function countAll() {
+    return getDb().prepare('SELECT COUNT(*) AS n FROM admins').get().n;
+}
+
+/**
+ * Update an admin's profile fields (username and/or role). Only whitelisted
+ * columns are ever written, so the caller can't inject arbitrary column names.
+ * @param {number} id
+ * @param {{username?: string, role?: string}} fields
+ * @returns {object|undefined} the updated admin row
+ */
+function updateProfile(id, fields = {}) {
+    const allowed = ['username', 'role'];
+    const keys = Object.keys(fields).filter((k) => allowed.includes(k) && fields[k] !== undefined);
+    if (!keys.length) return findById(id);
+    const setClause = keys.map((k) => `${k} = ?`).join(', ');
+    const values = keys.map((k) => fields[k]);
+    getDb().prepare(`UPDATE admins SET ${setClause} WHERE id = ?`).run(...values, id);
+    return findById(id);
+}
+
+/**
+ * Delete an admin account by id.
+ * @param {number} id
+ * @returns {boolean} true if a row was removed
+ */
+function deleteById(id) {
+    const info = getDb().prepare('DELETE FROM admins WHERE id = ?').run(id);
+    return info.changes > 0;
+}
+
 module.exports = {
     findByUsername,
     findById,
     create,
     updatePassword,
+    findAll,
+    countAll,
+    updateProfile,
+    deleteById,
 };

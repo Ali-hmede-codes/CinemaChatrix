@@ -19,6 +19,7 @@ const { initSchema } = require('./config/database');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
 const movieRoutes = require('./routes/movieRoutes');
 const seriesRoutes = require('./routes/seriesRoutes');
 const importRoutes = require('./routes/importRoutes');
@@ -132,6 +133,7 @@ function createApp() {
 
     /* ---- API routes (mounted in Phase 2+) ------------------------- */
     app.use('/api/auth', authRoutes);
+    app.use('/api/users', userRoutes);
     app.use('/api/movies', movieRoutes);
     app.use('/api/series', seriesRoutes);
     app.use('/api/imports', importRoutes);
