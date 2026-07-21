@@ -67,11 +67,11 @@ module.exports = {
              * not override these, so PM2's values win over backend/.env. */
             env: {
                 NODE_ENV: 'production',
-                PORT: 3000,
+                PORT: 3001,
             },
             env_production: {
                 NODE_ENV: 'production',
-                PORT: 3000,
+                PORT: 3001,
             },
 
             /* ---- Logs (written under backend/logs) ----

@@ -41,7 +41,7 @@ function parseIntEnv(key, fallback) {
 
 const config = {
     server: {
-        port: parseIntEnv('PORT', 3000),
+        port: parseIntEnv('PORT', 3001),
         nodeEnv: optional('NODE_ENV', 'development'),
         isProduction: optional('NODE_ENV', 'development') === 'production',
     },
@@ -75,7 +75,7 @@ const config = {
     },
 
     security: {
-        corsOrigin: optional('CORS_ORIGIN', 'http://localhost:3000'),
+        corsOrigin: optional('CORS_ORIGIN', 'http://localhost:3001'),
         rateLimitWindow: parseIntEnv('RATE_LIMIT_WINDOW', 15),
         rateLimitMax: parseIntEnv('RATE_LIMIT_MAX', 100),
         codeRateLimitMax: parseIntEnv('CODE_RATE_LIMIT_MAX', 5),
