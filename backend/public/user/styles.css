@@ -275,10 +275,11 @@ img { display: block; max-width: 100%; }
     font-family: var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase;
 }
 .cr-title {
-    font-family: var(--font-display); font-weight: 600; font-size: 1.5rem; line-height: 1.08;
+    font-family: var(--font-display); font-weight: 600; font-size: 1.5rem; line-height: 1.25;
     letter-spacing: 0.01em; text-transform: uppercase; text-wrap: balance;
     text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    padding-bottom: 3px;
 }
 .cr-cats { display: flex; flex-wrap: wrap; gap: 6px; }
 .cr-chip {
