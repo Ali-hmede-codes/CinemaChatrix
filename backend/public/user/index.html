@@ -36,6 +36,11 @@
             <section class="view" id="view-home">
                 <div class="carousel hidden" id="home-carousel" aria-label="Featured"></div>
 
+                <div class="rail-block hidden" id="home-categories-block">
+                    <div class="rail-head"><h2>Categories</h2></div>
+                    <div class="cat-chips" id="home-main-categories"></div>
+                </div>
+
                 <div class="rail-block">
                     <div class="rail-head"><h2>New &amp; Added</h2></div>
                     <div class="rail" id="rail-new"></div>
@@ -97,6 +102,26 @@
                 </div>
                 <p class="view-sub">Everything you've unlocked with a code lives here — on this device.</p>
                 <div class="poster-grid" id="library-grid"></div>
+            </section>
+
+            <!-- ============ CATEGORY (all films in a main category) ============ -->
+            <section class="view hidden" id="view-category">
+                <div class="view-head">
+                    <div class="cat-head-left">
+                        <button class="back-btn" id="category-back" aria-label="Back to home">
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4-4.6-4.6z"/></svg>
+                            Back
+                        </button>
+                        <h1 id="category-title" dir="auto">Category</h1>
+                    </div>
+                    <div class="search-box">
+                        <span class="search-ico"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M10 4a6 6 0 1 0 3.7 10.7l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg></span>
+                        <input id="category-search" type="search" placeholder="Search in this category…" />
+                    </div>
+                </div>
+                <div class="poster-grid" id="category-grid"></div>
+                <div class="feed-status" id="category-status" aria-live="polite"></div>
+                <div class="feed-sentinel" id="category-sentinel" aria-hidden="true"></div>
             </section>
 
         </main>

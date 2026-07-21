@@ -745,6 +745,56 @@ input[type="range"]#pl-progress::-moz-range-thumb {
     margin-inline-start: 7px; opacity: 0.92; white-space: nowrap; vertical-align: super;
 }
 
+/* ---------------- Main categories grid (home browse) ---------------- */
+/* Auto-fill grid: flows into as many rows as needed, so it stays tidy whether
+   there are 3 categories or 300. */
+.cat-chips {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+}
+.cat-chip-btn {
+    position: relative; display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; text-align: start; cursor: pointer; overflow: hidden;
+    background: var(--ink-3); border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm); padding: 13px 13px 13px 17px;
+    color: var(--text); font-family: var(--font-display); font-weight: 600;
+    font-size: 0.96rem; letter-spacing: 0.02em; text-transform: uppercase;
+    transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+/* marquee tick down the leading edge */
+.cat-chip-btn::before {
+    content: ''; position: absolute; inset-inline-start: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--rust); transition: background 0.2s ease;
+}
+.cat-chip-btn:active { transform: scale(0.98); }
+@media (hover: hover) {
+    .cat-chip-btn:hover {
+        transform: translateY(-2px); background: var(--ink-4);
+        border-color: var(--violet-deep); color: var(--violet);
+    }
+    .cat-chip-btn:hover::before { background: var(--violet); }
+    .cat-chip-btn:hover .cat-chip-arrow { color: var(--violet); transform: translateX(2px); }
+}
+.cat-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-chip-arrow { flex: none; color: var(--text-faint); transition: color 0.2s ease, transform 0.2s ease; }
+:dir(rtl) .cat-chip-arrow { transform: scaleX(-1); }
+
+/* ---------------- Category page header (back + title) ---------------- */
+.cat-head-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+.cat-head-left h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.back-btn {
+    display: inline-flex; align-items: center; gap: 4px; flex: none;
+    background: var(--ink-3); border: 1px solid var(--line-strong); color: var(--text);
+    cursor: pointer; font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 9px 12px; border-radius: var(--radius-sm);
+    transition: color 0.18s ease, border-color 0.18s ease, transform 0.1s ease;
+}
+.back-btn:hover { color: var(--violet); border-color: var(--violet-deep); }
+.back-btn:active { transform: scale(0.96); }
+:dir(rtl) .back-btn svg { transform: scaleX(-1); }
+
 /* ---------------- Toast — printed receipt ---------------- */
 .toast {
     position: fixed; left: 50%; bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px);

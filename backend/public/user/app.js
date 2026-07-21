@@ -33,6 +33,9 @@ const state = {
     // Paginated, server-searched feeds backing the Films / Series tabs.
     moviesFeed: newFeed(),
     seriesFeed: newFeed(),
+    categoryFeed: newFeed(),    // films within a selected main category
+    activeCategory: null,       // { id, name } while the category page is open
+    mainCategories: [],         // top-level categories for the home grid
     redeemContext: null, // { target?, title } for the redeem modal
     sheetReopen: null,   // fn to re-open the current sheet after a redeem
 };
@@ -142,7 +145,9 @@ async function loadCatalog() {
     state.films = data.films || [];
     state.series = data.series || [];
     state.newly = data.newly || [];
-    state.catNameById = flattenCatNames(data.categories || []);
+    const tree = data.categories || [];
+    state.mainCategories = tree;              // mains (each with a `children` array)
+    state.catNameById = flattenCatNames(tree);
 }
 
 /** Flatten the category tree into a Map of id → name (mains and subs). */
@@ -235,6 +240,7 @@ function renderCardsInto(container, items, emptyMsg) {
 /* ---------------- Home ---------------- */
 function renderHome() {
     renderCarousel();
+    renderMainCategories();
     $('#rail-new').innerHTML = state.newly.map((it, i) => cardHtml(it, i)).join('')
         || `<p class="card-sub">Nothing showing yet.</p>`;
     $('#rail-films').innerHTML = state.films.slice(0, 12).map((it, i) => cardHtml(it, i)).join('')
@@ -329,6 +335,21 @@ function renderCategoryRows() {
     }).join('');
 }
 
+/* ---------------- Main categories grid (home browse) ---------------- */
+function renderMainCategories() {
+    const box = $('#home-main-categories');
+    const block = $('#home-categories-block');
+    if (!box) return;
+    const mains = state.mainCategories || [];
+    if (!mains.length) { if (block) block.classList.add('hidden'); box.innerHTML = ''; return; }
+    if (block) block.classList.remove('hidden');
+    box.innerHTML = mains.map((c) => `
+        <button class="cat-chip-btn" data-cat-id="${c.id}" data-cat-name="${esc(c.name)}" dir="auto">
+            <span class="cat-chip-name">${esc(c.name)}</span>
+            <svg class="cat-chip-arrow" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6z"/></svg>
+        </button>`).join('');
+}
+
 /* ---------------- Movies / Series tabs ---------------- */
 /* These are handled by the paginated feed system further below. */
 
@@ -347,6 +368,7 @@ function renderAll() {
     // (e.g. after redeeming a code) without re-fetching from the server.
     if (state.moviesFeed.page) rerenderFeed('film');
     if (state.seriesFeed.page) rerenderFeed('series');
+    if (state.categoryFeed.page) rerenderFeed('category');
     renderLibrary();
 }
 
@@ -358,9 +380,13 @@ const PAGE_SIZE = 24;
 
 /** Resolve the DOM + state handles for a feed kind ('film' | 'series'). */
 function feedRefs(kind) {
-    return kind === 'film'
-        ? { feed: state.moviesFeed, grid: $('#movies-grid'), statusEl: $('#movies-status'), endpoint: '/catalog/films', dataKey: 'films' }
-        : { feed: state.seriesFeed, grid: $('#series-grid'), statusEl: $('#series-status'), endpoint: '/catalog/series', dataKey: 'series' };
+    if (kind === 'series') {
+        return { feed: state.seriesFeed, grid: $('#series-grid'), statusEl: $('#series-status'), endpoint: '/catalog/series', dataKey: 'series' };
+    }
+    if (kind === 'category') {
+        return { feed: state.categoryFeed, grid: $('#category-grid'), statusEl: $('#category-status'), endpoint: '/catalog/films', dataKey: 'films' };
+    }
+    return { feed: state.moviesFeed, grid: $('#movies-grid'), statusEl: $('#movies-status'), endpoint: '/catalog/films', dataKey: 'films' };
 }
 
 /** A shimmering placeholder card shown while a page is loading. */
@@ -379,7 +405,7 @@ function removeSkeletons(grid) {
 
 /** Empty-state markup for a feed with no results. */
 function feedEmptyHtml(kind, q) {
-    const noun = kind === 'film' ? 'films' : 'series';
+    const noun = kind === 'series' ? 'series' : 'films';
     return `
         <div class="grid-empty">
             <div class="ico">${q
@@ -410,6 +436,7 @@ async function loadFeed(kind, { reset = false } = {}) {
     try {
         const params = new URLSearchParams({ page: String(feed.page + 1), limit: String(PAGE_SIZE) });
         if (feed.q) params.set('q', feed.q);
+        if (feed.categoryId) params.set('category', String(feed.categoryId));
         const { data } = await api(`${endpoint}?${params}`);
         const items = data[dataKey] || [];
 
@@ -458,7 +485,9 @@ function renderFeedStatus(kind) {
 
 /** Is a feed's sentinel currently within (or near) the viewport? */
 function sentinelVisible(kind) {
-    const s = kind === 'film' ? $('#movies-sentinel') : $('#series-sentinel');
+    const s = kind === 'series' ? $('#series-sentinel')
+        : kind === 'category' ? $('#category-sentinel')
+        : $('#movies-sentinel');
     if (!s || s.offsetParent === null) return false; // sentinel is in a hidden tab
     const r = s.getBoundingClientRect();
     return r.top < window.innerHeight + 400 && r.bottom > -400;
@@ -474,6 +503,7 @@ function setupInfiniteScroll() {
 
     const ms = $('#movies-sentinel'); ms.dataset.kind = 'film'; obs.observe(ms);
     const ss = $('#series-sentinel'); ss.dataset.kind = 'series'; obs.observe(ss);
+    const cs = $('#category-sentinel'); if (cs) { cs.dataset.kind = 'category'; obs.observe(cs); }
 }
 
 /** Debounce a function by `ms` milliseconds. */
@@ -501,6 +531,29 @@ function switchTab(tab) {
 
     $('#views').scrollTo({ top: 0 });
     window.scrollTo({ top: 0 });
+}
+
+/* Open the dedicated page listing all films within a main category. */
+function openCategory(id, name) {
+    id = Number(id);
+    if (!id) return;
+    state.activeCategory = { id, name };
+    state.activeTab = 'category';
+    state.categoryFeed = newFeed();
+    state.categoryFeed.categoryId = id;
+
+    $('#category-title').textContent = name || 'Category';
+    $('#category-search').value = '';
+
+    $$('.view').forEach((v) => v.classList.add('hidden'));
+    $('#view-category').classList.remove('hidden');
+    // Category browsing lives under Home — keep Home marked active in the nav.
+    $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'home'));
+    stopCarousel();
+
+    $('#views').scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
+    loadFeed('category', { reset: true });
 }
 
 /* ================================================================== */
@@ -938,12 +991,16 @@ function bindEvents() {
     // Search — server-side, debounced. Resets the feed and re-queries, so a
     // title that hasn't been paged in yet is still found.
     const onSearch = (kind) => debounce((e) => {
-        const feed = kind === 'film' ? state.moviesFeed : state.seriesFeed;
+        const { feed } = feedRefs(kind);
         feed.q = e.target.value.trim();
         loadFeed(kind, { reset: true });
     }, 350);
     $('#movies-search').addEventListener('input', onSearch('film'));
     $('#series-search').addEventListener('input', onSearch('series'));
+    $('#category-search').addEventListener('input', onSearch('category'));
+
+    // Category page back button → return to Home.
+    $('#category-back').addEventListener('click', () => switchTab('home'));
 
     // Redeem modal
     $('#redeem-form').addEventListener('submit', submitRedeem);
@@ -979,6 +1036,9 @@ function bindEvents() {
             openRedeem({ target: { episode_id: Number(epLock.dataset.epId) }, title: epLock.dataset.epTitle });
             return;
         }
+
+        const catChip = e.target.closest('.cat-chip-btn');
+        if (catChip) { openCategory(catChip.dataset.catId, catChip.dataset.catName); return; }
 
         const dot = e.target.closest('[data-dot]');
         if (dot) { goToSlide(Number(dot.dataset.dot)); startCarousel(); return; }
