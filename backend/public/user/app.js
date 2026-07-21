@@ -243,10 +243,6 @@ function renderHome() {
     renderMainCategories();
     $('#rail-new').innerHTML = state.newly.map((it, i) => cardHtml(it, i)).join('')
         || `<p class="card-sub">Nothing showing yet.</p>`;
-    $('#rail-films').innerHTML = state.films.slice(0, 12).map((it, i) => cardHtml(it, i)).join('')
-        || `<p class="card-sub">No films yet.</p>`;
-    $('#rail-series').innerHTML = state.series.slice(0, 12).map((it, i) => cardHtml(it, i)).join('')
-        || `<p class="card-sub">No series yet.</p>`;
     renderCategoryRows();
 }
 
