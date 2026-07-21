@@ -109,14 +109,20 @@ const config = {
     },
 
     download: {
-        // Remote imports fetch a link over several parallel range requests so a
-        // per-connection speed cap (common on file hosts/CDNs) can't throttle the
-        // whole transfer — the trick download managers like IDM/aria2c use. Falls
-        // back to a single stream when the host doesn't support HTTP ranges.
-        // Set DOWNLOAD_CONNECTIONS=1 to disable parallel downloading entirely.
-        connections: Math.min(Math.max(parseIntEnv('DOWNLOAD_CONNECTIONS', 4), 1), 16),
+        // Remote imports fetch a link over many parallel range requests fed by a
+        // work-queue, so a per-connection speed cap (common on file hosts/CDNs)
+        // can't throttle the whole transfer — the trick download managers like
+        // IDM/aria2c use. Falls back to a single stream when the host doesn't
+        // support HTTP ranges. Set DOWNLOAD_CONNECTIONS=1 to disable parallel
+        // downloading entirely. More connections = more aggregate speed against
+        // a throttling host, up to the point your real line is saturated.
+        connections: Math.min(Math.max(parseIntEnv('DOWNLOAD_CONNECTIONS', 8), 1), 32),
         // Only split files larger than this (MB); smaller ones use one connection.
         parallelMinBytes: Math.max(parseIntEnv('DOWNLOAD_PARALLEL_MIN_MB', 16), 1) * 1024 * 1024,
+        // Work-queue segment size (MB). Smaller segments balance load better
+        // across connections (no slow-chunk tail) at the cost of a few more
+        // requests; 8 MB is a good default for large video files.
+        chunkBytes: Math.min(Math.max(parseIntEnv('DOWNLOAD_CHUNK_MB', 8), 1), 128) * 1024 * 1024,
         // Abort a connection if the socket stalls for this long (ms).
         timeoutMs: parseIntEnv('DOWNLOAD_TIMEOUT_MS', 300000),
     },
