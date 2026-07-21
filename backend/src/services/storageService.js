@@ -12,6 +12,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const dns = require('dns').promises;
 const net = require('net');
+const env = require('../config/env');
 const logger = require('../utils/logger');
 
 /* ------------------------------------------------------------------ */
@@ -24,6 +25,9 @@ const BROWSER_UA =
     '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 const MAX_REDIRECTS = 5;
+
+// Larger write buffer → fewer syscalls → better throughput on big files.
+const WRITE_BUFFER = 1024 * 1024;
 
 /**
  * True for loopback / private / link-local / unspecified addresses. Used to
@@ -57,7 +61,12 @@ function importError(message) {
 }
 
 /**
- * Stream a remote file to disk.
+ * Download a remote file to disk — fast.
+ *
+ * Opens several parallel HTTP range requests when the host supports them, so a
+ * single throttled connection (common on file hosts/CDNs) can't cap the whole
+ * transfer — the same trick download managers like IDM/aria2c use. Falls back
+ * to a single stream when ranges aren't supported or a parallel part fails.
  *
  * Redirects are followed manually so every hop can be validated: we reject any
  * hop that resolves to a private/localhost IP (anti-download sinkhole / SSRF)
@@ -86,26 +95,82 @@ async function downloadFromUrl(url, destPath, opts = {}) {
         }
     }
 
+    const startedAt = Date.now();
+
+    // Follow redirects + validate every hop, ending on an open, real-file response.
+    const { response, finalUrl } = await resolveFinalResponse(url, headers);
+
+    // Multi-connection path: only when the host advertises range support, the
+    // size is known and big enough to be worth splitting, and it's enabled.
+    const acceptsRanges = String(response.headers['accept-ranges'] || '')
+        .toLowerCase()
+        .includes('bytes');
+    const totalSize = Number(response.headers['content-length']) || 0;
+    const connections = env.download.connections;
+
+    if (acceptsRanges && connections > 1 && totalSize > env.download.parallelMinBytes) {
+        // The probe stream isn't needed — the parallel parts refetch by range.
+        response.data.destroy();
+        try {
+            await downloadInParallel(finalUrl, destPath, headers, totalSize, connections);
+            logDownload(destPath, totalSize, startedAt, connections);
+            return destPath;
+        } catch (err) {
+            logger.warn(
+                `[storage] Parallel download failed (${err.message}) — retrying as a single stream`
+            );
+            await fs.remove(destPath).catch(() => {});
+            const retry = await resolveFinalResponse(finalUrl, headers);
+            await pipeResponseToFile(retry.response, destPath);
+            logDownload(destPath, getFileSize(destPath), startedAt, 1);
+            return destPath;
+        }
+    }
+
+    // Single-connection path — reuse the response we already have open.
+    await pipeResponseToFile(response, destPath);
+    logDownload(destPath, totalSize || getFileSize(destPath), startedAt, 1);
+    return destPath;
+}
+
+/**
+ * Refuse any host that resolves to a private/localhost address — SSRF guard and
+ * anti-download-sinkhole protection (some hosts point their final CDN at
+ * 127.0.0.1 so servers can't fetch the file). Throws for a bad host.
+ * @param {string} host
+ */
+async function assertHostAllowed(host) {
+    const resolved = await dns.lookup(host).catch(() => ({ address: null }));
+    if (isBlockedAddress(resolved.address)) {
+        throw importError(
+            `Refusing to download from "${host}" — it resolves to a private/localhost ` +
+            `address (${resolved.address}). This host uses anti-download protection ` +
+            "(common with DoodStream-style links), so it can't be fetched server-side. " +
+            'Download it in a browser and upload the file instead.'
+        );
+    }
+}
+
+/**
+ * Follow redirects manually, validating each hop, until we reach a real-file
+ * 2xx response. Returns that OPEN response (body stream unread) + its final URL.
+ * @param {string} url
+ * @param {object} headers
+ * @returns {Promise<{response: object, finalUrl: string}>}
+ */
+async function resolveFinalResponse(url, headers) {
     let currentUrl = url;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         const host = new URL(currentUrl).hostname;
 
         // Guard: never connect to an inward-pointing address.
-        const resolved = await dns.lookup(host).catch(() => ({ address: null }));
-        if (isBlockedAddress(resolved.address)) {
-            throw importError(
-                `Refusing to download from "${host}" — it resolves to a private/localhost ` +
-                `address (${resolved.address}). This host uses anti-download protection ` +
-                "(common with DoodStream-style links), so it can't be fetched server-side. " +
-                'Download it in a browser and upload the file instead.'
-            );
-        }
+        await assertHostAllowed(host);
 
         const response = await axios({
             method: 'GET',
             url: currentUrl,
             responseType: 'stream',
-            timeout: 300000, // fires only when the socket stalls
+            timeout: env.download.timeoutMs, // fires only when the socket stalls
             maxRedirects: 0, // we follow manually to validate each hop
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
@@ -138,24 +203,129 @@ async function downloadFromUrl(url, destPath, opts = {}) {
             );
         }
 
-        // Larger buffer → fewer syscalls → better throughput on big files.
-        const writer = fs.createWriteStream(destPath, { highWaterMark: 1024 * 1024 });
-        response.data.pipe(writer);
-
-        return await new Promise((resolve, reject) => {
-            const fail = (err) => {
-                response.data.destroy();
-                writer.destroy();
-                fs.remove(destPath).catch(() => {}); // drop the partial file
-                reject(err);
-            };
-            writer.on('finish', () => resolve(destPath));
-            writer.on('error', fail);
-            response.data.on('error', fail);
-        });
+        return { response, finalUrl: currentUrl };
     }
 
     throw importError(`Too many redirects (>${MAX_REDIRECTS}) while downloading.`);
+}
+
+/**
+ * Pipe an already-open axios stream response to disk over one connection.
+ * @param {object} response - axios response with a stream `data`
+ * @param {string} destPath
+ * @returns {Promise<string>} destPath
+ */
+function pipeResponseToFile(response, destPath) {
+    const writer = fs.createWriteStream(destPath, { highWaterMark: WRITE_BUFFER });
+    response.data.pipe(writer);
+
+    return new Promise((resolve, reject) => {
+        const fail = (err) => {
+            response.data.destroy();
+            writer.destroy();
+            fs.remove(destPath).catch(() => {}); // drop the partial file
+            reject(err);
+        };
+        writer.on('finish', () => resolve(destPath));
+        writer.on('error', fail);
+        response.data.on('error', fail);
+    });
+}
+
+/**
+ * Download one file over several parallel range requests, each writing to its
+ * own region of the destination. This is what makes a fast link actually fast
+ * when the host caps the speed of any single connection.
+ * @param {string} url - the final, already-validated URL
+ * @param {string} destPath
+ * @param {object} headers
+ * @param {number} totalSize - full file size in bytes
+ * @param {number} connections - how many parts to fetch in parallel
+ * @returns {Promise<string>} destPath
+ */
+async function downloadInParallel(url, destPath, headers, totalSize, connections) {
+    // Pre-size the file so every part can write straight to its byte offset.
+    await fs.ensureFile(destPath);
+    await fs.truncate(destPath, totalSize);
+
+    const partSize = Math.ceil(totalSize / connections);
+    const parts = [];
+    for (let start = 0; start < totalSize; start += partSize) {
+        parts.push({ start, end: Math.min(start + partSize - 1, totalSize - 1) });
+    }
+
+    await Promise.all(parts.map((part) => downloadSegment(url, destPath, headers, part)));
+    return destPath;
+}
+
+/**
+ * Fetch a single byte range and write it at its offset in the destination file.
+ * Rejects (so the caller can fall back to a single stream) if the server does
+ * not honour the range with a 206 Partial Content response.
+ * @param {string} url
+ * @param {string} destPath
+ * @param {object} headers
+ * @param {{start:number, end:number}} range
+ * @returns {Promise<void>}
+ */
+function downloadSegment(url, destPath, headers, { start, end }) {
+    return new Promise((resolve, reject) => {
+        axios({
+            method: 'GET',
+            url,
+            responseType: 'stream',
+            timeout: env.download.timeoutMs,
+            maxRedirects: 0,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            headers: { ...headers, Range: `bytes=${start}-${end}` },
+            validateStatus: () => true,
+        })
+            .then((response) => {
+                // 206 = the server honoured the range. Anything else means we
+                // can't trust parallel parts — bail so the caller falls back.
+                if (response.status !== 206) {
+                    response.data.destroy();
+                    reject(new Error(`range request returned HTTP ${response.status}`));
+                    return;
+                }
+                // Open the shared file at this part's offset ('r+' leaves the
+                // other parts' bytes intact) and write only this slice.
+                const writer = fs.createWriteStream(destPath, {
+                    flags: 'r+',
+                    start,
+                    highWaterMark: WRITE_BUFFER,
+                });
+                const fail = (err) => {
+                    response.data.destroy();
+                    writer.destroy();
+                    reject(err);
+                };
+                writer.on('finish', () => resolve());
+                writer.on('error', fail);
+                response.data.on('error', fail);
+                response.data.pipe(writer);
+            })
+            .catch(reject);
+    });
+}
+
+/**
+ * Log a finished download's size, time and throughput — makes slow links easy
+ * to spot and separates slow downloads from slow FFmpeg processing.
+ * @param {string} destPath
+ * @param {number} bytes
+ * @param {number} startedAt - Date.now() when the download began
+ * @param {number} connections
+ */
+function logDownload(destPath, bytes, startedAt, connections) {
+    const ms = Date.now() - startedAt;
+    const mb = (bytes / (1024 * 1024)).toFixed(1);
+    const speed = ms && bytes ? `${(bytes / (1024 * 1024) / (ms / 1000)).toFixed(1)} MB/s` : '?';
+    logger.info(
+        `[storage] Downloaded ${mb} MB in ${(ms / 1000).toFixed(1)}s ` +
+        `(${speed}, ${connections} connection${connections > 1 ? 's' : ''})`
+    );
 }
 
 /* ------------------------------------------------------------------ */

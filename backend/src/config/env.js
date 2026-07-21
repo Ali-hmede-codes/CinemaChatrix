@@ -108,6 +108,19 @@ const config = {
         maxResolution: parseIntEnv('MAX_RESOLUTION', 1080),
     },
 
+    download: {
+        // Remote imports fetch a link over several parallel range requests so a
+        // per-connection speed cap (common on file hosts/CDNs) can't throttle the
+        // whole transfer — the trick download managers like IDM/aria2c use. Falls
+        // back to a single stream when the host doesn't support HTTP ranges.
+        // Set DOWNLOAD_CONNECTIONS=1 to disable parallel downloading entirely.
+        connections: Math.min(Math.max(parseIntEnv('DOWNLOAD_CONNECTIONS', 4), 1), 16),
+        // Only split files larger than this (MB); smaller ones use one connection.
+        parallelMinBytes: Math.max(parseIntEnv('DOWNLOAD_PARALLEL_MIN_MB', 16), 1) * 1024 * 1024,
+        // Abort a connection if the socket stalls for this long (ms).
+        timeoutMs: parseIntEnv('DOWNLOAD_TIMEOUT_MS', 300000),
+    },
+
     security: {
         corsOrigin: optional('CORS_ORIGIN', 'http://localhost:3001'),
         rateLimitWindow: parseIntEnv('RATE_LIMIT_WINDOW', 15),
@@ -129,6 +142,7 @@ module.exports = Object.freeze({
     admin: Object.freeze(config.admin),
     upload: Object.freeze(config.upload),
     compression: Object.freeze(config.compression),
+    download: Object.freeze(config.download),
     security: Object.freeze(config.security),
     player: Object.freeze(config.player),
 });
