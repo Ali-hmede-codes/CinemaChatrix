@@ -245,9 +245,13 @@ function renderCarousel() {
             .map((c) => `<span class="cr-chip" dir="auto">${esc(c.name)}</span>`).join('');
         return `
             <div class="cr-slide${i === 0 ? ' active' : ''}" data-type="${it.type}" data-slug="${esc(it.slug)}" data-id="${it.id}">
-                <img class="cr-img" src="${esc(it.poster)}" alt="${esc(it.title)}"
+                <img class="cr-ambient" src="${esc(it.poster)}" alt="" aria-hidden="true"
                      onerror="this.src='/static/images/default_image.png'" />
-                <div class="cr-scrim"></div>
+                <div class="cr-ambient-scrim"></div>
+                <div class="cr-poster-wrap">
+                    <img class="cr-poster" src="${esc(it.poster)}" alt="${esc(it.title)}"
+                         onerror="this.src='/static/images/default_image.png'" />
+                </div>
                 <div class="cr-body">
                     <span class="cr-badge">${owned ? 'In your library' : 'Now Showing'}</span>
                     <div class="cr-title" dir="auto">${esc(it.title)}</div>
@@ -286,6 +290,8 @@ function goToSlide(i) {
     if (!el || !n) return;
     const idx = ((i % n) + n) % n;
     state.carousel.index = idx;
+    const track = $('.cr-track', el);
+    if (track) track.style.transform = `translateX(-${idx * 100}%)`;
     $$('.cr-slide', el).forEach((s, si) => s.classList.toggle('active', si === idx));
     $$('.cr-dot', el).forEach((d, di) => d.classList.toggle('active', di === idx));
 }
@@ -515,8 +521,9 @@ async function openFilm(slug) {
 
     openSheet(`
         <div class="detail-hero">
-            <img src="${esc(film.poster)}" alt="${esc(film.title)}" onerror="this.src='/static/images/default_image.png'" />
-            <div class="card-scrim"></div>
+            <img class="detail-hero-bg" src="${esc(film.poster)}" alt="" aria-hidden="true" onerror="this.src='/static/images/default_image.png'" />
+            <div class="detail-hero-scrim"></div>
+            <img class="detail-hero-poster" src="${esc(film.poster)}" alt="${esc(film.title)}" onerror="this.src='/static/images/default_image.png'" />
         </div>
         <div class="detail-content">
             <div class="detail-title" dir="auto">${esc(film.title)}</div>
@@ -580,8 +587,9 @@ async function openSeries(slug) {
 
     openSheet(`
         <div class="detail-hero">
-            <img src="${esc(series.poster)}" alt="${esc(series.title)}" onerror="this.src='/static/images/default_image.png'" />
-            <div class="card-scrim"></div>
+            <img class="detail-hero-bg" src="${esc(series.poster)}" alt="" aria-hidden="true" onerror="this.src='/static/images/default_image.png'" />
+            <div class="detail-hero-scrim"></div>
+            <img class="detail-hero-poster" src="${esc(series.poster)}" alt="${esc(series.title)}" onerror="this.src='/static/images/default_image.png'" />
         </div>
         <div class="detail-content">
             <div class="detail-title" dir="auto">${esc(series.title)}</div>

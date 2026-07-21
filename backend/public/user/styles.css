@@ -223,42 +223,51 @@ img { display: block; max-width: 100%; }
 }
 .search-box input::placeholder { color: var(--text-faint); }
 
-/* ---------------- Featured carousel (auto cross-fade) ---------------- */
+/* ---------------- Featured carousel (portrait posters, slide + fade) ---------------- */
 .carousel {
     position: relative;
     border-radius: var(--radius);
     overflow: hidden;
-    aspect-ratio: 16 / 9;
     margin-bottom: 26px;
-    background: var(--ink-3);
-    border: 1px solid var(--line-strong);
-    box-shadow: var(--shadow);
 }
 .carousel.hidden { display: none !important; }
-.cr-track { position: absolute; inset: 0; }
+/* horizontal track — slides glide in from the right / left */
+.cr-track { display: flex; will-change: transform; transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1); }
 .cr-slide {
-    position: absolute; inset: 0; cursor: pointer;
-    opacity: 0; visibility: hidden;
-    transition: opacity 0.9s ease, visibility 0.9s;
+    position: relative; flex: 0 0 100%; cursor: pointer; overflow: hidden;
+    display: flex; align-items: center; gap: 16px;
+    padding: 20px 18px; min-height: 250px;
+    opacity: 0.35; transition: opacity 0.55s ease;
 }
-.cr-slide.active { opacity: 1; visibility: visible; z-index: 1; }
-.cr-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-/* slow Ken Burns push-in on the visible slide */
-.cr-slide.active .cr-img { animation: kenburns 6.5s ease-out both; }
-@keyframes kenburns { from { transform: scale(1.09); } to { transform: scale(1); } }
-.cr-scrim {
-    position: absolute; inset: 0;
+.cr-slide.active { opacity: 1; }
+/* blurred poster art fills the width — cinematic, not a flat "ad box" */
+.cr-ambient {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    transform: scale(1.25); filter: blur(28px) brightness(0.5) saturate(1.15); z-index: 0;
+}
+.cr-ambient-scrim {
+    position: absolute; inset: 0; z-index: 1;
     background:
-        linear-gradient(0deg, rgba(13, 10, 7, 0.96) 3%, rgba(13, 10, 7, 0.28) 46%, transparent 72%),
-        linear-gradient(90deg, rgba(13, 10, 7, 0.55), transparent 58%);
+        linear-gradient(0deg, rgba(13, 10, 7, 0.6), transparent 60%),
+        linear-gradient(90deg, rgba(13, 10, 7, 0.55), rgba(13, 10, 7, 0.2) 70%);
 }
+/* the actual portrait poster — shown at its natural shape, no crop/pixelation */
+.cr-poster-wrap {
+    position: relative; z-index: 2; flex: 0 0 auto;
+    width: clamp(132px, 40%, 188px); aspect-ratio: 2 / 3;
+    border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--line-strong);
+    box-shadow: 0 20px 44px -18px rgba(0, 0, 0, 0.85);
+}
+.cr-poster { width: 100%; height: 100%; object-fit: cover; }
+.cr-slide.active .cr-poster { animation: kenburns 7s ease-out both; }
+@keyframes kenburns { from { transform: scale(1.08); } to { transform: scale(1); } }
 .cr-body {
-    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
-    padding: 20px 22px 22px;
-    display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
+    position: relative; z-index: 2; flex: 1; min-width: 0;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
 }
-.cr-slide.active .cr-body { animation: cr-rise 0.7s 0.12s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
-@keyframes cr-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+.cr-slide.active .cr-body { animation: cr-rise 0.6s 0.1s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+@keyframes cr-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 .cr-badge {
     display: inline-block; font-size: 0.62rem; font-weight: 700; color: var(--ink);
     background: var(--violet); padding: 5px 11px 4px; border-radius: 3px;
@@ -266,9 +275,10 @@ img { display: block; max-width: 100%; }
     font-family: var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase;
 }
 .cr-title {
-    font-family: var(--font-display); font-weight: 600; font-size: 1.95rem; line-height: 1.04;
+    font-family: var(--font-display); font-weight: 600; font-size: 1.5rem; line-height: 1.08;
     letter-spacing: 0.01em; text-transform: uppercase; text-wrap: balance;
     text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
 .cr-cats { display: flex; flex-wrap: wrap; gap: 6px; }
 .cr-chip {
@@ -289,7 +299,7 @@ img { display: block; max-width: 100%; }
     background: var(--rust); color: #fff5ee; box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
 }
 .cr-dots {
-    position: absolute; top: 12px; right: 14px; z-index: 3;
+    position: absolute; bottom: 12px; right: 14px; z-index: 3;
     display: flex; gap: 7px;
 }
 .cr-dot {
@@ -307,14 +317,14 @@ img { display: block; max-width: 100%; }
     letter-spacing: 0.03em; text-transform: uppercase;
 }
 .rail {
-    display: grid; grid-auto-flow: column; grid-auto-columns: 62%;
+    display: grid; grid-auto-flow: column; grid-auto-columns: 40%;
     gap: 13px; overflow-x: auto; scroll-snap-type: x mandatory;
     padding: 0 16px 6px; margin: 0 -16px; scrollbar-width: none;
 }
 .rail::-webkit-scrollbar { display: none; }
 .rail .card { scroll-snap-align: start; }
 
-/* ---------------- Poster grid (landscape rectangles) ---------------- */
+/* ---------------- Poster grid (portrait posters) ---------------- */
 .poster-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .grid-empty {
     grid-column: 1 / -1; text-align: center; color: var(--text-dim);
@@ -328,7 +338,7 @@ img { display: block; max-width: 100%; }
 }
 .grid-empty p { font-size: 0.92rem; max-width: 320px; margin: 0 auto; }
 
-/* ---------------- Card — landscape marquee tile ---------------- */
+/* ---------------- Card — portrait poster tile ---------------- */
 .card {
     position: relative;
     border-radius: var(--radius-sm);
@@ -355,7 +365,7 @@ img { display: block; max-width: 100%; }
     }
     .card:hover .card-poster img { transform: scale(1.06); }
 }
-.card-poster { position: relative; aspect-ratio: 16 / 9; background: var(--ink-3); overflow: hidden; }
+.card-poster { position: relative; aspect-ratio: 2 / 3; background: var(--ink-3); overflow: hidden; }
 .card-poster img {
     width: 100%; height: 100%; object-fit: cover;
     transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
@@ -468,10 +478,25 @@ img { display: block; max-width: 100%; }
 }
 .sheet-close:hover, .modal-close:hover { color: var(--violet); border-color: var(--violet-deep); }
 
-.detail-hero { position: relative; aspect-ratio: 16 / 9; background: var(--ink-3); }
-.detail-hero img { width: 100%; height: 100%; object-fit: cover; }
-.detail-hero .card-scrim { background: linear-gradient(0deg, var(--ink-2) 2%, transparent 68%); }
-.detail-content { padding: 6px 20px 0; margin-top: -44px; position: relative; z-index: 2; }
+.detail-hero {
+    position: relative; overflow: hidden; background: var(--ink-3);
+    display: flex; align-items: flex-end; justify-content: center;
+    padding: 26px 20px 0; min-height: 250px;
+}
+.detail-hero-bg {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    transform: scale(1.25); filter: blur(30px) brightness(0.45) saturate(1.1); z-index: 0;
+}
+.detail-hero-scrim {
+    position: absolute; inset: 0; z-index: 1;
+    background: linear-gradient(0deg, var(--ink-2) 1%, rgba(13, 10, 7, 0.35) 55%, transparent);
+}
+.detail-hero-poster {
+    position: relative; z-index: 2; width: clamp(140px, 40%, 190px); aspect-ratio: 2 / 3;
+    object-fit: cover; border-radius: 10px; border: 1px solid var(--line-strong);
+    box-shadow: 0 22px 48px -20px rgba(0, 0, 0, 0.9);
+}
+.detail-content { padding: 16px 20px 0; margin-top: 0; position: relative; z-index: 2; }
 .detail-title {
     font-family: var(--font-display); font-size: 1.75rem; font-weight: 600;
     letter-spacing: 0.01em; text-transform: uppercase; text-wrap: balance; line-height: 1.1;
@@ -736,21 +761,21 @@ input[type="range"]#pl-progress::-moz-range-thumb {
    ============================================================ */
 @media (min-width: 560px) {
     .poster-grid { grid-template-columns: repeat(3, 1fr); gap: 14px; }
-    .rail { grid-auto-columns: 42%; }
+    .rail { grid-auto-columns: 27%; }
 }
 @media (min-width: 820px) {
     .poster-grid { grid-template-columns: repeat(4, 1fr); gap: 16px; }
-    .rail { grid-auto-columns: 31%; }
+    .rail { grid-auto-columns: 20%; }
     .view { padding: 24px 28px 8px; }
     .appbar { padding-left: 28px; padding-right: 28px; }
-    .carousel { aspect-ratio: 21 / 9; }
-    .cr-title { font-size: 2.6rem; }
-    .cr-body { padding: 26px 30px 28px; }
+    .cr-slide { min-height: 320px; padding: 30px 32px; gap: 28px; }
+    .cr-poster-wrap { width: clamp(160px, 26%, 230px); }
+    .cr-title { font-size: 2.1rem; }
 }
 @media (min-width: 1100px) {
     .views { max-width: 1180px; margin: 0 auto; width: 100%; }
     .poster-grid { grid-template-columns: repeat(5, 1fr); }
-    .rail { grid-auto-columns: 24%; }
+    .rail { grid-auto-columns: 16%; }
     .bottom-nav {
         left: 50%; right: auto; transform: translateX(-50%); bottom: 18px;
         width: min(540px, 92vw); height: 64px; padding-bottom: 0;
@@ -770,7 +795,8 @@ input[type="range"]#pl-progress::-moz-range-thumb {
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .card, .view, .sheet, .modal-card, .sheet-backdrop, .modal-backdrop { animation: none !important; }
-    .cr-slide.active .cr-img, .cr-slide.active .cr-body { animation: none !important; }
+    .cr-slide.active .cr-poster, .cr-slide.active .cr-body { animation: none !important; }
+    .cr-track { transition: none !important; }
     .skeleton::after { animation: none; }
     .card:hover { transform: none; }
 }
