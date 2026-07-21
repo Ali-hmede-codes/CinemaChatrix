@@ -167,8 +167,8 @@ function cardHtml(item, i = 0) {
         : `${item.episode_count || 0} episode${item.episode_count === 1 ? '' : 's'}`;
 
     const badge = locked
-        ? `<span class="badge badge-lock">🔒 Locked</span>`
-        : `<span class="badge badge-owned">✓ Yours</span>`;
+        ? `<span class="badge badge-lock">Ticket Req.</span>`
+        : `<span class="badge badge-owned">Admitted</span>`;
 
     return `
         <div class="card ${locked ? 'locked' : ''}" style="--i:${i}" data-type="${item.type}" data-slug="${esc(item.slug)}" data-id="${item.id}">
@@ -190,7 +190,7 @@ function renderCardsInto(container, items, emptyMsg) {
     if (!items.length) {
         container.innerHTML = `
             <div class="grid-empty">
-                <div class="ico">🎬</div>
+                <div class="ico"><svg viewBox="0 0 48 48" width="42" height="42" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 14a2 2 0 0 1 2-2h32a2 2 0 0 1 2 2v5a3 3 0 0 0 0 6v5a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-5a3 3 0 0 0 0-6v-5Z"/><path d="M28 12v24" stroke-dasharray="3 3"/></svg></div>
                 <h3>${esc(emptyMsg.title)}</h3>
                 <p>${esc(emptyMsg.body)}</p>
             </div>`;
@@ -211,9 +211,9 @@ function renderHome() {
                  onerror="this.src='/static/images/default_image.png'" />
             <div class="hero-scrim"></div>
             <div class="hero-body">
-                <span class="hero-badge">Newly added</span>
+                <span class="hero-badge">Now Showing</span>
                 <div class="hero-title" dir="auto">${esc(hero.title)}</div>
-                <div class="hero-meta">${owned ? '✓ In your library' : '🔒 Enter a code to unlock'}</div>
+                <div class="hero-meta">${owned ? 'In your library' : 'Ticket required to watch'}</div>
             </div>`;
         heroEl.dataset.type = hero.type;
         heroEl.dataset.slug = hero.slug;
@@ -288,7 +288,9 @@ function feedEmptyHtml(kind, q) {
     const noun = kind === 'film' ? 'films' : 'series';
     return `
         <div class="grid-empty">
-            <div class="ico">${q ? '🔍' : '🎬'}</div>
+            <div class="ico">${q
+                ? `<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`
+                : `<svg viewBox="0 0 48 48" width="42" height="42" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 14a2 2 0 0 1 2-2h32a2 2 0 0 1 2 2v5a3 3 0 0 0 0 6v5a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-5a3 3 0 0 0 0-6v-5Z"/><path d="M28 12v24" stroke-dasharray="3 3"/></svg>`}</div>
             <h3>${q ? `No ${noun} match` : `No ${noun} yet`}</h3>
             <p>${q ? 'Try a different search term.' : 'Check back soon for new titles.'}</p>
         </div>`;
@@ -431,13 +433,13 @@ async function openFilm(slug) {
     state.sheetReopen = () => openFilm(slug);
 
     const metaChips = [
-        fmtDuration(film.duration) ? `<span class="chip">⏱ ${fmtDuration(film.duration)}</span>` : '',
+        fmtDuration(film.duration) ? `<span class="chip">${fmtDuration(film.duration)}</span>` : '',
         film.quality ? `<span class="chip">${esc(film.quality)}</span>` : '',
-        owned ? `<span class="chip owned">✓ Unlocked</span>` : `<span class="chip locked">🔒 Locked</span>`,
+        owned ? `<span class="chip owned">Admitted</span>` : `<span class="chip locked">Ticket required</span>`,
     ].join('');
 
     const action = owned
-        ? `<button class="btn btn-primary" data-play data-type="film" data-slug="${esc(film.slug)}" data-id="${film.id}" data-title="${esc(film.title)}">▶ Play</button>`
+        ? `<button class="btn btn-primary" data-play data-type="film" data-slug="${esc(film.slug)}" data-id="${film.id}" data-title="${esc(film.title)}">► Play</button>`
         : lockPanelHtml('film', { movie_id: film.id }, film.title);
 
     openSheet(`
@@ -494,10 +496,10 @@ async function openSeries(slug) {
     });
 
     const statusChip = fullyOwned
-        ? `<span class="chip owned">✓ Full series unlocked</span>`
+        ? `<span class="chip owned">Full series admitted</span>`
         : anyOwned
-            ? `<span class="chip owned">✓ Some episodes unlocked</span>`
-            : `<span class="chip locked">🔒 Locked</span>`;
+            ? `<span class="chip owned">Some episodes admitted</span>`
+            : `<span class="chip locked">Ticket required</span>`;
 
     const unlockPanel = fullyOwned ? '' : lockPanelHtml('series', { series_id: series.id }, series.title,
         anyOwned ? 'Have another code? Unlock more episodes or the whole series.' : null);
@@ -527,8 +529,8 @@ function lockPanelHtml(kind, target, title, customMsg) {
     const targetAttr = encodeURIComponent(JSON.stringify(target));
     return `
         <div class="lock-panel">
-            <div class="lock-ico">🔒</div>
-            <h4>Locked</h4>
+            <div class="lock-ico"><svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 0 1 6 0v3H9Z"/></svg></div>
+            <h4>Ticket required</h4>
             <p>${esc(msg)}</p>
             <button class="btn btn-primary btn-block" data-open-redeem="${targetAttr}" data-redeem-title="${esc(title)}">Enter code</button>
         </div>`;
@@ -571,7 +573,7 @@ async function submitRedeem(e) {
     try {
         const { data, message } = await api('/codes/redeem', { method: 'POST', body });
         const label = data && data.target && data.target.title ? data.target.title : 'Content';
-        toast(data && data.already_unlocked ? `Already unlocked: ${label}` : `Unlocked: ${label} 🎉`, 'ok');
+        toast(data && data.already_unlocked ? `Already in your library: ${label}` : `Admit one — ${label} unlocked`, 'ok');
         closeRedeem();
         await loadLibrary();
         renderAll();

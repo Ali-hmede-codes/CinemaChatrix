@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#07080f" />
+    <meta name="theme-color" content="#14100c" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>CinemaChatrix</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Cairo:wght@400;600;700&family=Oswald:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
     <link rel="icon" type="image/png" href="/static/images/logo.png" />
     <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -63,7 +63,7 @@
                 <div class="view-head">
                     <h1>Films</h1>
                     <div class="search-box">
-                        <span class="search-ico">🔎</span>
+                        <span class="search-ico"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M10 4a6 6 0 1 0 3.7 10.7l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg></span>
                         <input id="movies-search" type="search" placeholder="Search films…" />
                     </div>
                 </div>
@@ -77,7 +77,7 @@
                 <div class="view-head">
                     <h1>Series</h1>
                     <div class="search-box">
-                        <span class="search-ico">🔎</span>
+                        <span class="search-ico"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M10 4a6 6 0 1 0 3.7 10.7l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg></span>
                         <input id="series-search" type="search" placeholder="Search series…" />
                     </div>
                 </div>
@@ -131,12 +131,15 @@
     <!-- ============ REDEEM CODE MODAL ============ -->
     <div class="modal-root hidden" id="redeem-root">
         <div class="modal-backdrop" data-close></div>
-        <div class="modal-card" role="dialog" aria-modal="true">
-            <div class="modal-head">
-                <h3>Unlock content</h3>
-                <button class="modal-close" data-close aria-label="Close">✕</button>
+        <div class="modal-card ticket" role="dialog" aria-modal="true" style="--perf-y:50px">
+            <button class="modal-close" data-close aria-label="Close">✕</button>
+            <div class="ticket-stub">
+                <span class="ticket-admit">Admit One</span>
+                <span class="ticket-no">№ CHX · Access Pass</span>
             </div>
+            <div class="ticket-perf"></div>
             <div class="modal-body">
+                <h3 class="ticket-title">Redeem your ticket</h3>
                 <p class="modal-hint" id="redeem-hint" dir="auto">Enter the access code you received to unlock this on this device.</p>
                 <form id="redeem-form">
                     <input id="redeem-input" class="code-input" type="text" inputmode="latin"
@@ -144,7 +147,7 @@
                            placeholder="CHX-XXXX-XXXX" maxlength="14" />
                     <button type="submit" class="btn btn-primary btn-block" id="redeem-submit">Unlock</button>
                 </form>
-                <p class="modal-note">🔒 Your code is verified on our server and locked to this device. It's never stored on your phone and can't be viewed by anyone.</p>
+                <p class="modal-note">Verified on our server &amp; locked to this device — never stored on your phone, never visible to anyone.</p>
             </div>
         </div>
     </div>
