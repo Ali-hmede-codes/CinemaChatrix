@@ -42,6 +42,7 @@
             <nav class="tabs">
                 <button class="tab active" data-tab="films">Films</button>
                 <button class="tab" data-tab="series">Series</button>
+                <button class="tab" data-tab="categories">Categories</button>
                 <button class="tab" data-tab="codes">Codes</button>
             </nav>
             <div class="topbar-right">
@@ -92,6 +93,21 @@
 
                 <!-- DETAIL VIEW (episode manager) -->
                 <div id="series-detail-view" class="hidden"></div>
+            </section>
+
+            <!-- ============ CATEGORIES ============ -->
+            <section id="tab-categories" class="tab-panel hidden">
+                <div class="panel-head">
+                    <div class="panel-title">
+                        <h2>Categories</h2>
+                        <span class="count-pill" id="categories-count">0</span>
+                    </div>
+                    <div class="head-actions">
+                        <button class="btn btn-primary" id="btn-add-main-cat">＋ Add Main Category</button>
+                    </div>
+                </div>
+                <p class="cat-intro">Build a two-level menu — a <b>main category</b> (e.g. عربي) with <b>sub-categories</b> under it (e.g. دراما, أكشن). You can then tag any film or series with one or more of them.</p>
+                <div id="categories-tree"></div>
             </section>
 
             <!-- ============ CODES ============ -->

@@ -6,6 +6,7 @@
  */
 
 const seriesModel = require('../models/seriesModel');
+const categoryModel = require('../models/categoryModel');
 const uploadService = require('../services/uploadService');
 const storageService = require('../services/storageService');
 const remoteImportService = require('../services/remoteImportService');
@@ -23,6 +24,24 @@ function parseBool(val, fallback = 1) {
     return ['1', 'true', 'on', 'yes'].includes(String(val).toLowerCase()) ? 1 : 0;
 }
 
+/**
+ * Parse a `category_ids` field from a multipart form into an array of numeric
+ * ids. Accepts a JSON array string ("[1,2]"), a repeated field (array) or a
+ * comma-separated string. Returns null when the field is absent (leave the
+ * series' categories untouched) and [] when explicitly empty (clear them all).
+ */
+function parseIdList(val) {
+    if (val === undefined || val === null) return null;
+    if (Array.isArray(val)) return val.map(Number).filter(Number.isInteger);
+    const str = String(val).trim();
+    if (str === '') return [];
+    try {
+        const arr = JSON.parse(str);
+        if (Array.isArray(arr)) return arr.map(Number).filter(Number.isInteger);
+    } catch { /* not JSON — fall through to CSV */ }
+    return str.split(',').map((s) => Number(s.trim())).filter(Number.isInteger);
+}
+
 async function cleanupTempFiles(req) {
     if (!req.files) return;
     for (const f of Object.values(req.files).flat()) {
@@ -36,13 +55,18 @@ async function cleanupTempFiles(req) {
 
 /* GET /api/series  (admin) */
 function list(req, res) {
-    return response.success(res, { series: seriesModel.findAll() }, 'All series');
+    const series = seriesModel.findAll();
+    const catMap = categoryModel.mapForContent('series', series.map((s) => s.id));
+    const withCats = series.map((s) => ({ ...s, categories: catMap.get(s.id) || [] }));
+    return response.success(res, { series: withCats }, 'All series');
 }
 
 /* GET /api/series/:slug  (public) — series info + episodes */
 function getBySlug(req, res) {
     const series = seriesModel.findBySlug(req.params.slug);
     if (!series) return response.notFound(res, 'Series');
+
+    series.categories = categoryModel.findForSeries(series.id);
 
     const episodes = seriesModel.findEpisodesBySeries(series.id).map((ep) => {
         const { video_path, ...safe } = ep; // hide private path publicly
@@ -58,7 +82,7 @@ function getBySlug(req, res) {
 /* POST /api/series  (admin, multipart: poster optional) */
 async function create(req, res, next) {
     const posterFile = req.files?.poster?.[0];
-    const { title, description, is_published, poster_url } = req.body;
+    const { title, description, is_published, poster_url, category_ids } = req.body;
 
     try {
         if (!title || !title.trim()) {
@@ -83,6 +107,11 @@ async function create(req, res, next) {
             is_published: parseBool(is_published, 1),
         });
 
+        // Attach any selected categories (main and/or sub).
+        const catIds = parseIdList(category_ids);
+        if (catIds) categoryModel.setForSeries(series.id, catIds);
+        series.categories = categoryModel.findForSeries(series.id);
+
         logger.info(`[series] Created series "${series.title}" (id=${series.id})`);
         return response.success(res, { series }, 'Series created', 201);
     } catch (err) {
@@ -100,7 +129,7 @@ async function update(req, res, next) {
     }
 
     const posterFile = req.files?.poster?.[0];
-    const { title, description, is_published, poster_url } = req.body;
+    const { title, description, is_published, poster_url, category_ids } = req.body;
 
     try {
         const fields = {};
@@ -129,6 +158,12 @@ async function update(req, res, next) {
         }
 
         const updated = seriesModel.update(series.id, fields);
+
+        // Sync categories when the field is present (empty array clears them).
+        const catIds = parseIdList(category_ids);
+        if (catIds !== null) categoryModel.setForSeries(series.id, catIds);
+        updated.categories = categoryModel.findForSeries(series.id);
+
         logger.info(`[series] Updated series "${updated.title}" (id=${series.id})`);
         return response.success(res, { series: updated }, 'Series updated');
     } catch (err) {

@@ -15,6 +15,30 @@ function likeParam(q) {
     return `%${escaped}%`;
 }
 
+/**
+ * Build the shared WHERE clause (+ named params) for the public, paginated
+ * film queries. Supports an optional title search and an optional category
+ * filter. A category filter matches films tagged with that category OR — when
+ * it's a main category — any of its sub-categories.
+ */
+function buildPublishedWhere({ q = '', categoryId = null } = {}) {
+    const clauses = ['is_published = 1'];
+    const params = {};
+    if (q) {
+        clauses.push("title LIKE @q ESCAPE '\\'");
+        params.q = likeParam(q);
+    }
+    if (categoryId) {
+        clauses.push(`id IN (
+            SELECT cc.movie_id FROM content_categories cc
+            JOIN categories c ON c.id = cc.category_id
+            WHERE cc.category_id = @categoryId OR c.parent_id = @categoryId
+        )`);
+        params.categoryId = Number(categoryId);
+    }
+    return { where: clauses.join(' AND '), params };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Reads                                                              */
 /* ------------------------------------------------------------------ */
@@ -42,44 +66,32 @@ function findPublished() {
 
 /**
  * A single page of published films, newest first, optionally filtered by a
- * title search. Powers the user app's paginated Films tab (infinite scroll).
- * @param {{limit?:number, offset?:number, q?:string}} opts
+ * title search and/or a category. Powers the user app's paginated Films tab.
+ * @param {{limit?:number, offset?:number, q?:string, categoryId?:number}} opts
  * @returns {object[]}
  */
-function findPublishedPaged({ limit = 24, offset = 0, q = '' } = {}) {
+function findPublishedPaged({ limit = 24, offset = 0, q = '', categoryId = null } = {}) {
     const cols = `id, title, slug, description, poster_path, thumbnail_path,
                   duration, file_size, quality, created_at`;
-    if (q) {
-        return getDb().prepare(`
-            SELECT ${cols}
-            FROM movies
-            WHERE is_published = 1 AND title LIKE ? ESCAPE '\\'
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-        `).all(likeParam(q), limit, offset);
-    }
+    const { where, params } = buildPublishedWhere({ q, categoryId });
     return getDb().prepare(`
         SELECT ${cols}
         FROM movies
-        WHERE is_published = 1
+        WHERE ${where}
         ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-    `).all(limit, offset);
+        LIMIT @limit OFFSET @offset
+    `).all({ ...params, limit, offset });
 }
 
 /**
- * Total number of published films (optionally matching a title search).
- * Used to compute `has_more` for pagination.
- * @param {string} q
+ * Total number of published films matching the same optional title search and
+ * category filter. Used to compute `has_more` for pagination.
+ * @param {{q?:string, categoryId?:number}} opts
  * @returns {number}
  */
-function countPublished(q = '') {
-    if (q) {
-        return getDb().prepare(
-            `SELECT COUNT(*) AS n FROM movies WHERE is_published = 1 AND title LIKE ? ESCAPE '\\'`
-        ).get(likeParam(q)).n;
-    }
-    return getDb().prepare('SELECT COUNT(*) AS n FROM movies WHERE is_published = 1').get().n;
+function countPublished({ q = '', categoryId = null } = {}) {
+    const { where, params } = buildPublishedWhere({ q, categoryId });
+    return getDb().prepare(`SELECT COUNT(*) AS n FROM movies WHERE ${where}`).get(params).n;
 }
 
 function findById(id) {

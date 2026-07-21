@@ -24,6 +24,7 @@ const seriesRoutes = require('./routes/seriesRoutes');
 const importRoutes = require('./routes/importRoutes');
 const codeRoutes = require('./routes/codeRoutes');
 const catalogRoutes = require('./routes/catalogRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
 const libraryRoutes = require('./routes/libraryRoutes');
 const watchRoutes = require('./routes/watchRoutes');
 const logger = require('./utils/logger');
@@ -136,6 +137,7 @@ function createApp() {
     app.use('/api/imports', importRoutes);
     app.use('/api/codes', codeRoutes);
     app.use('/api/catalog', catalogRoutes);
+    app.use('/api/categories', categoryRoutes);
     app.use('/api/library', libraryRoutes);
     app.use('/api/watch', watchRoutes);
 

@@ -44,4 +44,23 @@ function uniqueSlug(title, existsFn) {
     return slug;
 }
 
-module.exports = { toSlug, uniqueSlug };
+/**
+ * Slugify a category name, guaranteeing a non-empty result.
+ *
+ * Under `strict` mode `toSlug` drops every character it can't transliterate,
+ * so a purely non-Latin name (e.g. Arabic "دراما") slugifies to an empty
+ * string. When that happens we fall back to a short, stable token derived from
+ * a hash of the name so the same name always yields the same base slug.
+ * Uniqueness (per level) is still enforced by the caller.
+ *
+ * @param {string} name
+ * @returns {string} a non-empty slug base
+ */
+function toCategorySlug(name) {
+    const base = toSlug(name);
+    if (base) return base;
+    const hash = crypto.createHash('md5').update(String(name || '')).digest('hex');
+    return `cat-${hash.slice(0, 8)}`;
+}
+
+module.exports = { toSlug, uniqueSlug, toCategorySlug };

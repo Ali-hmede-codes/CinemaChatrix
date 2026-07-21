@@ -16,6 +16,7 @@ const state = {
     seriesQuery: '',
     currentSeries: null, // series row when the detail view is open
     currentEpisodes: [],
+    categories: [],      // full category tree (mains → children)
     codes: [],
     codeQuery: '',
     codeStatus: '',
@@ -173,6 +174,52 @@ function posterFields(currentUrl) {
         ${preview}`;
 }
 
+/**
+ * A grouped checklist of categories for the film / series modals. Renders each
+ * main category with its sub-categories; both levels are selectable so a title
+ * can be tagged with "one or more" of anything. `selectedIds` pre-checks the
+ * boxes when editing. Reads the live `state.categories` tree.
+ */
+function categoryPickerField(selectedIds = []) {
+    const sel = new Set((selectedIds || []).map(Number));
+    if (!state.categories.length) {
+        return `<div class="form-divider">Categories</div>
+            <p class="hint">No categories yet. Create some in the <b>Categories</b> tab, then tag titles here.</p>`;
+    }
+    const groups = state.categories.map((main) => {
+        const subs = (main.children || []).map((sub) => `
+            <label class="cat-check">
+                <input type="checkbox" name="cat" value="${sub.id}" ${sel.has(sub.id) ? 'checked' : ''} />
+                <span dir="auto">${esc(sub.name)}</span>
+            </label>`).join('');
+        return `
+        <div class="cat-group">
+            <label class="cat-check cat-check-main">
+                <input type="checkbox" name="cat" value="${main.id}" ${sel.has(main.id) ? 'checked' : ''} />
+                <span dir="auto">${esc(main.name)}</span>
+            </label>
+            ${subs ? `<div class="cat-subs">${subs}</div>` : ''}
+        </div>`;
+    }).join('');
+    return `
+        <div class="form-divider">Categories <span class="cat-hint-inline">· choose one or more</span></div>
+        <div class="cat-picker" dir="auto">${groups}</div>`;
+}
+
+/** Collect the checked category ids from a film/series form. */
+function collectCategoryIds(form) {
+    return [...form.querySelectorAll('input[name=cat]:checked')].map((el) => Number(el.value));
+}
+
+/** Small category chips for a content card (shows up to 3, then a +N pill). */
+function catChips(cats) {
+    if (!cats || !cats.length) return '';
+    const shown = cats.slice(0, 3)
+        .map((c) => `<span class="cat-chip" dir="auto">${esc(c.name)}</span>`).join('');
+    const more = cats.length > 3 ? `<span class="cat-chip more">+${cats.length - 3}</span>` : '';
+    return `<div class="card-cats">${shown}${more}</div>`;
+}
+
 /* ============================================================
    VIEW SWITCHING + LOGIN
    ============================================================ */
@@ -185,6 +232,7 @@ function showApp() {
     $('#app-view').classList.remove('hidden');
     loadFilms();
     loadSeries();
+    loadCategories();
 }
 
 $('#login-form').addEventListener('submit', async (e) => {
@@ -222,8 +270,10 @@ $$('.tab').forEach((tab) => {
         const name = tab.dataset.tab;
         $('#tab-films').classList.toggle('hidden', name !== 'films');
         $('#tab-series').classList.toggle('hidden', name !== 'series');
+        $('#tab-categories').classList.toggle('hidden', name !== 'categories');
         $('#tab-codes').classList.toggle('hidden', name !== 'codes');
         if (name === 'codes') loadCodes();
+        if (name === 'categories') loadCategories();
     });
 });
 
@@ -288,6 +338,7 @@ function filmCard(m) {
                 <span>${fmtDuration(m.duration)}</span>
                 <span>${fmtSize(m.file_size)}</span>
             </div>
+            ${catChips(m.categories)}
         </div>
     </div>`;
 }
@@ -313,6 +364,7 @@ $('#btn-bulk-films').addEventListener('click', openBulkFilmsModal);
 function openFilmModal(movie) {
     const isEdit = !!movie;
     const m = movie || {};
+    const selectedCatIds = (m.categories || []).map((c) => c.id);
     const videoSection = isEdit ? '' : `
         <div class="form-divider">Video source</div>
         <div class="grid-2">
@@ -345,6 +397,7 @@ function openFilmModal(movie) {
             ${videoSection}
             <div class="form-divider">Poster</div>
             ${posterFields(m.poster_path)}
+            ${categoryPickerField(selectedCatIds)}
             ${switchField('is_published', 'Published', m.is_published ?? 1)}
             ${progressBar('film-progress')}
             <div class="form-actions">
@@ -373,6 +426,9 @@ async function submitFilm(e, movie) {
     // Drop empty file inputs so multer doesn't choke on empty parts
     if (!form.querySelector('[name=poster]')?.files.length) fd.delete('poster');
     if (form.video && !form.video.files.length) fd.delete('video');
+    // Replace the raw checkbox fields with a single JSON category_ids list
+    fd.delete('cat');
+    fd.set('category_ids', JSON.stringify(collectCategoryIds(form)));
 
     const submitBtn = form.querySelector('button[type=submit]');
     submitBtn.disabled = true;
@@ -542,6 +598,7 @@ function seriesCard(s) {
         <div class="card-body">
             <div class="card-title">${esc(s.title)}</div>
             <div class="card-meta"><span>Manage episodes →</span></div>
+            ${catChips(s.categories)}
         </div>
     </div>`;
 }
@@ -566,6 +623,7 @@ $('#btn-add-series').addEventListener('click', () => openSeriesModal(null));
 function openSeriesModal(series) {
     const isEdit = !!series;
     const s = series || {};
+    const selectedCatIds = (s.categories || []).map((c) => c.id);
     openModal(isEdit ? 'Edit Series' : 'Add Series', `
         <form id="series-form">
             <div class="field">
@@ -578,6 +636,7 @@ function openSeriesModal(series) {
             </div>
             <div class="form-divider">Poster</div>
             ${posterFields(s.poster_path)}
+            ${categoryPickerField(selectedCatIds)}
             ${switchField('is_published', 'Published', s.is_published ?? 1)}
             <div class="form-actions">
                 <button type="button" class="btn btn-ghost" data-close>Cancel</button>
@@ -597,6 +656,9 @@ async function submitSeries(e, series) {
     const fd = new FormData(form);
     fd.set('is_published', form.is_published.checked ? '1' : '0');
     if (!form.poster.files.length) fd.delete('poster');
+    // Replace the raw checkbox fields with a single JSON category_ids list
+    fd.delete('cat');
+    fd.set('category_ids', JSON.stringify(collectCategoryIds(form)));
 
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
@@ -898,6 +960,178 @@ function openBulkEpisodesModal(series) {
             btn.disabled = false;
         }
     });
+}
+
+/* ============================================================
+   CATEGORIES  (main + sub, shared by films & series)
+   ============================================================ */
+async function loadCategories() {
+    const box = $('#categories-tree');
+    if (box) box.innerHTML = '<div class="empty">Loading categories…</div>';
+    try {
+        const { data } = await api('/categories');
+        state.categories = data.categories || [];
+        renderCategories();
+    } catch (err) {
+        if (box) box.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    }
+}
+
+function renderCategories() {
+    const box = $('#categories-tree');
+    if (!box) return;
+    const mains = state.categories;
+    const subCount = mains.reduce((n, m) => n + (m.children ? m.children.length : 0), 0);
+    const countEl = $('#categories-count');
+    if (countEl) countEl.textContent = mains.length + subCount;
+
+    if (!mains.length) {
+        box.innerHTML = `<div class="empty"><div class="em-icon">🏷️</div>No categories yet.
+            <div><button class="btn btn-primary" id="empty-add-cat">＋ Add your first category</button></div></div>`;
+        $('#empty-add-cat')?.addEventListener('click', () => openCategoryModal({ parent: null, category: null }));
+        return;
+    }
+    box.innerHTML = mains.map(categoryCard).join('');
+}
+
+function usagePill(n) {
+    return n ? `<span class="cat-usage" title="${n} title${n === 1 ? '' : 's'} tagged">${n}</span>` : '';
+}
+
+function categoryCard(main) {
+    const subs = main.children || [];
+    const subHtml = subs.length
+        ? subs.map((sub) => `
+            <div class="cat-sub">
+                <span class="cat-sub-name" dir="auto">${esc(sub.name)}</span>
+                ${usagePill(sub.usage_count)}
+                <button class="mini-btn" data-act="edit-sub" data-id="${sub.id}" title="Rename">✎</button>
+                <button class="mini-btn del" data-act="del-sub" data-id="${sub.id}" title="Delete">🗑</button>
+            </div>`).join('')
+        : '<span class="cat-empty-subs">No sub-categories yet</span>';
+    return `
+    <div class="cat-card">
+        <div class="cat-card-head">
+            <div class="cat-main-name" dir="auto"><span class="cat-dot"></span>${esc(main.name)} ${usagePill(main.usage_count)}</div>
+            <div class="cat-card-actions">
+                <button class="btn btn-ghost btn-sm" data-act="add-sub" data-id="${main.id}">＋ Sub-category</button>
+                <button class="icon-btn edit" data-act="edit-main" data-id="${main.id}" title="Rename">✎</button>
+                <button class="icon-btn del" data-act="del-main" data-id="${main.id}" title="Delete">🗑</button>
+            </div>
+        </div>
+        <div class="cat-subs-row">${subHtml}</div>
+    </div>`;
+}
+
+/** Find a sub-category (and its parent main) by id in the tree. */
+function findSubById(id) {
+    for (const main of state.categories) {
+        const cat = (main.children || []).find((c) => c.id === id);
+        if (cat) return { cat, parent: main };
+    }
+    return { cat: null, parent: null };
+}
+
+/* Category tree interactions (event delegation) */
+$('#categories-tree').addEventListener('click', (e) => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const id = Number(el.dataset.id);
+    const act = el.dataset.act;
+    if (act === 'add-sub') {
+        const main = state.categories.find((m) => m.id === id);
+        openCategoryModal({ parent: main, category: null });
+    } else if (act === 'edit-main') {
+        const main = state.categories.find((m) => m.id === id);
+        openCategoryModal({ parent: null, category: main });
+    } else if (act === 'del-main') {
+        const main = state.categories.find((m) => m.id === id);
+        deleteCategory(main, true);
+    } else if (act === 'edit-sub') {
+        const { cat, parent } = findSubById(id);
+        openCategoryModal({ parent, category: cat });
+    } else if (act === 'del-sub') {
+        const { cat } = findSubById(id);
+        deleteCategory(cat, false);
+    }
+});
+
+$('#btn-add-main-cat').addEventListener('click', () => openCategoryModal({ parent: null, category: null }));
+
+/* ---- Add / Edit / Rename category modal ---- */
+function openCategoryModal({ parent = null, category = null }) {
+    const isEdit = !!category;
+    const isSub = isEdit ? !!category.parent_id : !!parent;
+    const c = category || {};
+
+    let parentName = '';
+    if (parent) parentName = parent.name;
+    else if (isEdit && category.parent_id) {
+        parentName = state.categories.find((m) => m.id === category.parent_id)?.name || '';
+    }
+
+    const title = isEdit
+        ? (isSub ? 'Rename Sub-category' : 'Rename Main Category')
+        : (isSub ? 'Add Sub-category' : 'Add Main Category');
+    const context = (isSub && parentName)
+        ? `<p class="hint cat-context">Under main category <b dir="auto">${esc(parentName)}</b></p>`
+        : '';
+
+    openModal(title, `
+        <form id="category-form">
+            ${context}
+            <div class="field">
+                <label>Name *</label>
+                <input name="name" type="text" required dir="auto"
+                    placeholder="${isSub ? 'e.g. دراما' : 'e.g. عربي'}" value="${attr(c.name)}" />
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn btn-primary">${isEdit ? 'Save' : 'Create'}</button>
+            </div>
+        </form>
+    `);
+    $('#category-form').addEventListener('submit', (e) => submitCategory(e, { parent, category }));
+}
+
+async function submitCategory(e, { parent, category }) {
+    e.preventDefault();
+    const form = e.target;
+    const name = form.name.value.trim();
+    if (!name) { toast('Name is required', 'err'); return; }
+
+    const isEdit = !!category;
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+        if (isEdit) {
+            await api(`/categories/${category.id}`, { method: 'PUT', body: { name } });
+            toast('Category updated');
+        } else {
+            const body = { name };
+            if (parent) body.parent_id = parent.id;
+            await api('/categories', { method: 'POST', body });
+            toast('Category created');
+        }
+        closeModal();
+        await loadCategories();
+    } catch (err) {
+        toast(err.message, 'err');
+        btn.disabled = false;
+    }
+}
+
+async function deleteCategory(cat, isMain) {
+    if (!cat) return;
+    const warn = isMain
+        ? `Delete main category “${cat.name}” and ALL its sub-categories? Tagged films/series will lose these tags.`
+        : `Delete sub-category “${cat.name}”? Tagged films/series will lose this tag.`;
+    if (!confirm(warn)) return;
+    try {
+        await api(`/categories/${cat.id}`, { method: 'DELETE' });
+        toast('Category deleted');
+        await loadCategories();
+    } catch (err) { toast(err.message, 'err'); }
 }
 
 /* ============================================================

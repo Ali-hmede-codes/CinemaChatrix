@@ -20,6 +20,8 @@ const state = {
     films: [],
     series: [],
     newly: [],
+    categoryRows: [],           // [{ id, name, is_main, items:[...] }] for home rails
+    carousel: { index: 0, count: 0, timer: null }, // featured fade carousel
     // Ownership sets (ids), derived from the library.
     ownedMovies: new Set(),
     ownedEpisodes: new Set(),
@@ -141,6 +143,15 @@ async function loadCatalog() {
     state.newly = data.newly || [];
 }
 
+async function loadCategoryRows() {
+    try {
+        const { data } = await api('/catalog/category-rows?limit=5');
+        state.categoryRows = data.rows || [];
+    } catch {
+        state.categoryRows = []; // non-fatal — home still works without category rails
+    }
+}
+
 async function loadLibrary() {
     const { data } = await api('/library', { method: 'POST', body: { device_fingerprint: state.fp } });
     state.library = { films: data.films || [], series: data.series || [] };
@@ -170,6 +181,11 @@ function cardHtml(item, i = 0) {
         ? `<span class="badge badge-lock">Ticket Req.</span>`
         : `<span class="badge badge-owned">Admitted</span>`;
 
+    // Up to 2 category chips. Items inside a category's own rail carry no
+    // `categories` (set server-side), so no redundant tags show there.
+    const cats = (item.categories || []).slice(0, 2)
+        .map((c) => `<span class="card-cat" dir="auto">${esc(c.name)}</span>`).join('');
+
     return `
         <div class="card ${locked ? 'locked' : ''}" style="--i:${i}" data-type="${item.type}" data-slug="${esc(item.slug)}" data-id="${item.id}">
             <div class="card-poster">
@@ -178,10 +194,13 @@ function cardHtml(item, i = 0) {
                 <div class="card-scrim"></div>
                 <span class="badge badge-type">${item.type === 'film' ? 'Film' : 'Series'}</span>
                 ${badge}
-            </div>
-            <div class="card-body">
-                <div class="card-title" dir="auto">${esc(item.title)}</div>
-                <div class="card-sub">${esc(sub)}</div>
+                <div class="card-overlay">
+                    <div class="card-title" dir="auto">${esc(item.title)}</div>
+                    <div class="card-metarow">
+                        <span class="card-sub">${esc(sub)}</span>
+                        ${cats}
+                    </div>
+                </div>
             </div>
         </div>`;
 }
@@ -201,34 +220,86 @@ function renderCardsInto(container, items, emptyMsg) {
 
 /* ---------------- Home ---------------- */
 function renderHome() {
-    // Hero = newest item
-    const hero = state.newly[0];
-    const heroEl = $('#home-hero');
-    if (hero) {
-        const owned = hero.type === 'film' ? filmOwned(hero) : seriesOwned(hero);
-        heroEl.innerHTML = `
-            <img class="hero-img" src="${esc(hero.poster)}" alt="${esc(hero.title)}"
-                 onerror="this.src='/static/images/default_image.png'" />
-            <div class="hero-scrim"></div>
-            <div class="hero-body">
-                <span class="hero-badge">Now Showing</span>
-                <div class="hero-title" dir="auto">${esc(hero.title)}</div>
-                <div class="hero-meta">${owned ? 'In your library' : 'Ticket required to watch'}</div>
-            </div>`;
-        heroEl.dataset.type = hero.type;
-        heroEl.dataset.slug = hero.slug;
-        heroEl.dataset.id = hero.id;
-        heroEl.style.display = '';
-    } else {
-        heroEl.innerHTML = '';
-        heroEl.style.display = 'none';
-    }
-
-    $('#rail-new').innerHTML = state.newly.map(cardHtml).join('');
-    $('#rail-films').innerHTML = state.films.slice(0, 12).map(cardHtml).join('')
+    renderCarousel();
+    $('#rail-new').innerHTML = state.newly.map((it, i) => cardHtml(it, i)).join('')
+        || `<p class="card-sub">Nothing showing yet.</p>`;
+    $('#rail-films').innerHTML = state.films.slice(0, 12).map((it, i) => cardHtml(it, i)).join('')
         || `<p class="card-sub">No films yet.</p>`;
-    $('#rail-series').innerHTML = state.series.slice(0, 12).map(cardHtml).join('')
+    $('#rail-series').innerHTML = state.series.slice(0, 12).map((it, i) => cardHtml(it, i)).join('')
         || `<p class="card-sub">No series yet.</p>`;
+    renderCategoryRows();
+}
+
+/* ---------------- Featured carousel (auto cross-fade) ---------------- */
+function renderCarousel() {
+    const el = $('#home-carousel');
+    if (!el) return;
+    const items = state.newly.slice(0, 6);
+    stopCarousel();
+    if (!items.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    el.classList.remove('hidden');
+
+    const slides = items.map((it, i) => {
+        const owned = it.type === 'film' ? filmOwned(it) : seriesOwned(it);
+        const cats = (it.categories || []).slice(0, 3)
+            .map((c) => `<span class="cr-chip" dir="auto">${esc(c.name)}</span>`).join('');
+        return `
+            <div class="cr-slide${i === 0 ? ' active' : ''}" data-type="${it.type}" data-slug="${esc(it.slug)}" data-id="${it.id}">
+                <img class="cr-img" src="${esc(it.poster)}" alt="${esc(it.title)}"
+                     onerror="this.src='/static/images/default_image.png'" />
+                <div class="cr-scrim"></div>
+                <div class="cr-body">
+                    <span class="cr-badge">${owned ? 'In your library' : 'Now Showing'}</span>
+                    <div class="cr-title" dir="auto">${esc(it.title)}</div>
+                    ${cats ? `<div class="cr-cats">${cats}</div>` : ''}
+                    <div class="cr-cta"><span class="cr-play">▶</span>${it.type === 'film' ? 'Watch film' : 'Browse series'}</div>
+                </div>
+            </div>`;
+    }).join('');
+
+    const dots = items.length > 1
+        ? `<div class="cr-dots">${items.map((_, i) =>
+            `<button class="cr-dot${i === 0 ? ' active' : ''}" data-dot="${i}" aria-label="Featured ${i + 1}"></button>`).join('')}</div>`
+        : '';
+
+    el.innerHTML = `<div class="cr-track">${slides}</div>${dots}`;
+    state.carousel.index = 0;
+    state.carousel.count = items.length;
+    startCarousel();
+}
+
+function startCarousel() {
+    stopCarousel();
+    if (state.carousel.count > 1 && state.activeTab === 'home') {
+        state.carousel.timer = setInterval(() => goToSlide(state.carousel.index + 1), 5200);
+    }
+}
+function stopCarousel() {
+    if (state.carousel.timer) clearInterval(state.carousel.timer);
+    state.carousel.timer = null;
+}
+
+/** Show slide `i` (wraps around) and sync the dots. */
+function goToSlide(i) {
+    const el = $('#home-carousel');
+    const n = state.carousel.count;
+    if (!el || !n) return;
+    const idx = ((i % n) + n) % n;
+    state.carousel.index = idx;
+    $$('.cr-slide', el).forEach((s, si) => s.classList.toggle('active', si === idx));
+    $$('.cr-dot', el).forEach((d, di) => d.classList.toggle('active', di === idx));
+}
+
+/* ---------------- Browse-by-category rails ---------------- */
+function renderCategoryRows() {
+    const box = $('#home-category-rows');
+    if (!box) return;
+    if (!state.categoryRows.length) { box.innerHTML = ''; return; }
+    box.innerHTML = state.categoryRows.map((row) => `
+        <div class="rail-block cat-rail ${row.is_main ? 'cat-main' : 'cat-sub'}">
+            <div class="rail-head"><h2 dir="auto">${esc(row.name)}</h2></div>
+            <div class="rail">${row.items.map((it, i) => cardHtml(it, i)).join('')}</div>
+        </div>`).join('');
 }
 
 /* ---------------- Movies / Series tabs ---------------- */
@@ -270,10 +341,6 @@ function skeletonCardHtml() {
     return `
         <div class="card card-skeleton" aria-hidden="true">
             <div class="card-poster skeleton"></div>
-            <div class="card-body">
-                <div class="sk-line skeleton"></div>
-                <div class="sk-line sk-short skeleton"></div>
-            </div>
         </div>`;
 }
 function appendSkeletons(grid, n) {
@@ -402,6 +469,9 @@ function switchTab(tab) {
     if (tab === 'movies' && !state.moviesFeed.page && !state.moviesFeed.loading) loadFeed('film', { reset: true });
     if (tab === 'series' && !state.seriesFeed.page && !state.seriesFeed.loading) loadFeed('series', { reset: true });
 
+    // The featured carousel only ticks while Home is on screen.
+    if (tab === 'home') startCarousel(); else stopCarousel();
+
     $('#views').scrollTo({ top: 0 });
     window.scrollTo({ top: 0 });
 }
@@ -436,6 +506,7 @@ async function openFilm(slug) {
         fmtDuration(film.duration) ? `<span class="chip">${fmtDuration(film.duration)}</span>` : '',
         film.quality ? `<span class="chip">${esc(film.quality)}</span>` : '',
         owned ? `<span class="chip owned">Admitted</span>` : `<span class="chip locked">Ticket required</span>`,
+        ...(film.categories || []).map((c) => `<span class="chip cat" dir="auto">${esc(c.name)}</span>`),
     ].join('');
 
     const action = owned
@@ -501,6 +572,9 @@ async function openSeries(slug) {
             ? `<span class="chip owned">Some episodes admitted</span>`
             : `<span class="chip locked">Ticket required</span>`;
 
+    const catChips = (series.categories || [])
+        .map((c) => `<span class="chip cat" dir="auto">${esc(c.name)}</span>`).join('');
+
     const unlockPanel = fullyOwned ? '' : lockPanelHtml('series', { series_id: series.id }, series.title,
         anyOwned ? 'Have another code? Unlock more episodes or the whole series.' : null);
 
@@ -514,6 +588,7 @@ async function openSeries(slug) {
             <div class="detail-meta">
                 <span class="chip">${series.episode_count} episode${series.episode_count === 1 ? '' : 's'}</span>
                 ${statusChip}
+                ${catChips}
             </div>
             ${series.description ? `<p class="detail-desc" dir="auto">${esc(series.description)}</p>` : ''}
             ${unlockPanel}
@@ -874,16 +949,42 @@ function bindEvents() {
             return;
         }
 
-        const hero = e.target.closest('#home-hero');
-        if (hero && hero.dataset.slug) { onCardActivate(hero); return; }
+        const dot = e.target.closest('[data-dot]');
+        if (dot) { goToSlide(Number(dot.dataset.dot)); startCarousel(); return; }
+
+        const slide = e.target.closest('.cr-slide');
+        if (slide && slide.dataset.slug) { onCardActivate(slide); return; }
 
         const card = e.target.closest('.card');
         if (card) onCardActivate(card);
     });
 
+    // Carousel swipe (touch) — bound once on the persistent container.
+    const carouselEl = $('#home-carousel');
+    if (carouselEl) {
+        let sx = 0, sy = 0, swiping = false;
+        carouselEl.addEventListener('touchstart', (e) => {
+            const t = e.changedTouches[0]; sx = t.clientX; sy = t.clientY; swiping = true;
+        }, { passive: true });
+        carouselEl.addEventListener('touchend', (e) => {
+            if (!swiping) return; swiping = false;
+            const t = e.changedTouches[0];
+            const dx = t.clientX - sx, dy = t.clientY - sy;
+            if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+                goToSlide(state.carousel.index + (dx < 0 ? 1 : -1));
+                startCarousel();
+            }
+        }, { passive: true });
+    }
+
     // Save progress if the page is hidden/closed mid-playback.
     document.addEventListener('visibilitychange', () => {
-        if (document.hidden && player.ctx) saveProgressNow();
+        if (document.hidden) {
+            stopCarousel();
+            if (player.ctx) saveProgressNow();
+        } else if (state.activeTab === 'home') {
+            startCarousel();
+        }
     });
     window.addEventListener('beforeunload', () => { if (player.ctx) saveProgressNow(); });
 }
@@ -898,7 +999,7 @@ async function boot() {
     setupInfiniteScroll();
     try {
         state.fp = await getDeviceFp();
-        await Promise.all([loadCatalog(), loadLibrary()]);
+        await Promise.all([loadCatalog(), loadLibrary(), loadCategoryRows()]);
         renderAll();
     } catch (err) {
         toast(err.message || 'Failed to load. Please refresh.', 'err');

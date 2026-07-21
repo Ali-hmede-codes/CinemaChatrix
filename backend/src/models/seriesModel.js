@@ -14,6 +14,30 @@ function likeParam(q) {
     return `%${escaped}%`;
 }
 
+/**
+ * Build the shared WHERE clause (+ named params) for the public, paginated
+ * series queries. Uses the `s` alias. Supports an optional title search and an
+ * optional category filter (matches a series tagged with the category OR, when
+ * it's a main category, any of its sub-categories).
+ */
+function buildPublishedWhere({ q = '', categoryId = null } = {}) {
+    const clauses = ['s.is_published = 1'];
+    const params = {};
+    if (q) {
+        clauses.push("s.title LIKE @q ESCAPE '\\'");
+        params.q = likeParam(q);
+    }
+    if (categoryId) {
+        clauses.push(`s.id IN (
+            SELECT cc.series_id FROM content_categories cc
+            JOIN categories c ON c.id = cc.category_id
+            WHERE cc.category_id = @categoryId OR c.parent_id = @categoryId
+        )`);
+        params.categoryId = Number(categoryId);
+    }
+    return { where: clauses.join(' AND '), params };
+}
+
 /* ================================================================== */
 /*  SERIES                                                             */
 /* ================================================================== */
@@ -41,44 +65,34 @@ function findPublished() {
 
 /**
  * A single page of published series (each with its episode count), newest
- * first, optionally filtered by a title search. Powers the paginated Series
- * tab (infinite scroll).
- * @param {{limit?:number, offset?:number, q?:string}} opts
+ * first, optionally filtered by a title search and/or a category. Powers the
+ * paginated Series tab (infinite scroll).
+ * @param {{limit?:number, offset?:number, q?:string, categoryId?:number}} opts
  * @returns {object[]}
  */
-function findPublishedPaged({ limit = 24, offset = 0, q = '' } = {}) {
-    const base = `
+function findPublishedPaged({ limit = 24, offset = 0, q = '', categoryId = null } = {}) {
+    const { where, params } = buildPublishedWhere({ q, categoryId });
+    return getDb().prepare(`
         SELECT s.id, s.title, s.slug, s.description, s.poster_path, s.created_at,
                COUNT(e.id) AS episode_count
         FROM series s
         LEFT JOIN episodes e ON e.series_id = s.id
-        WHERE s.is_published = 1`;
-    if (q) {
-        return getDb().prepare(`${base} AND s.title LIKE ? ESCAPE '\\'
-            GROUP BY s.id
-            ORDER BY s.created_at DESC
-            LIMIT ? OFFSET ?
-        `).all(likeParam(q), limit, offset);
-    }
-    return getDb().prepare(`${base}
+        WHERE ${where}
         GROUP BY s.id
         ORDER BY s.created_at DESC
-        LIMIT ? OFFSET ?
-    `).all(limit, offset);
+        LIMIT @limit OFFSET @offset
+    `).all({ ...params, limit, offset });
 }
 
 /**
- * Total number of published series (optionally matching a title search).
- * @param {string} q
+ * Total number of published series matching the same optional title search and
+ * category filter.
+ * @param {{q?:string, categoryId?:number}} opts
  * @returns {number}
  */
-function countPublished(q = '') {
-    if (q) {
-        return getDb().prepare(
-            `SELECT COUNT(*) AS n FROM series WHERE is_published = 1 AND title LIKE ? ESCAPE '\\'`
-        ).get(likeParam(q)).n;
-    }
-    return getDb().prepare('SELECT COUNT(*) AS n FROM series WHERE is_published = 1').get().n;
+function countPublished({ q = '', categoryId = null } = {}) {
+    const { where, params } = buildPublishedWhere({ q, categoryId });
+    return getDb().prepare(`SELECT COUNT(*) AS n FROM series s WHERE ${where}`).get(params).n;
 }
 
 function findById(id) {

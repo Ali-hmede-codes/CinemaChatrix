@@ -2,6 +2,7 @@
  * Catalog routes — /api/catalog  (PUBLIC, browse-only)
  *
  *   GET /api/catalog/home          films + series + newly-added feed
+ *   GET /api/catalog/category-rows one rail per category (latest titles)
  *   GET /api/catalog/films         published films
  *   GET /api/catalog/series        published series
  *   GET /api/catalog/film/:slug    single film detail
@@ -17,6 +18,7 @@ const catalogController = require('../controllers/catalogController');
 const router = express.Router();
 
 router.get('/home', catalogController.home);
+router.get('/category-rows', catalogController.categoryRows);
 router.get('/films', catalogController.films);
 router.get('/series', catalogController.series);
 router.get('/film/:slug', catalogController.filmDetail);

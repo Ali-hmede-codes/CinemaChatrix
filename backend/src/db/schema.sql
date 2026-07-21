@@ -58,6 +58,38 @@ CREATE TABLE IF NOT EXISTS episodes (
     FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
 );
 
+-- ============ CATEGORIES ============
+-- A simple two-level tree: main categories have parent_id = NULL, and
+-- sub-categories point at their main via parent_id. The same set is shared by
+-- films and series (e.g. main "عربي" → sub "دراما"). Deleting a main category
+-- cascades to its sub-categories (and to every assignment, see below).
+CREATE TABLE IF NOT EXISTS categories (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    slug       TEXT NOT NULL,
+    parent_id  INTEGER,               -- NULL = main category, else a sub-category
+    sort_order INTEGER DEFAULT 0,     -- manual ordering within a level
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE CASCADE
+);
+
+-- ============ CONTENT ↔ CATEGORY (many-to-many) ============
+-- Links a category to ONE movie OR ONE series. A film/series can carry many
+-- categories (main and/or sub), and a category can tag many titles.
+CREATE TABLE IF NOT EXISTS content_categories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER NOT NULL,
+    movie_id    INTEGER,
+    series_id   INTEGER,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
+    FOREIGN KEY (movie_id)    REFERENCES movies(id)     ON DELETE CASCADE,
+    FOREIGN KEY (series_id)   REFERENCES series(id)     ON DELETE CASCADE,
+    CONSTRAINT chk_cc_target CHECK (
+        (movie_id  IS NOT NULL AND series_id IS NULL) OR
+        (series_id IS NOT NULL AND movie_id  IS NULL)
+    )
+);
+
 -- ============ CODES ============
 -- Each code is tied to ONE movie, ONE episode, OR a WHOLE series.
 -- A series code unlocks every episode of that series (present and future).
@@ -131,6 +163,18 @@ CREATE INDEX IF NOT EXISTS idx_progress_device  ON watch_progress(device_id);
 CREATE INDEX IF NOT EXISTS idx_movies_slug      ON movies(slug);
 CREATE INDEX IF NOT EXISTS idx_series_slug      ON series(slug);
 CREATE INDEX IF NOT EXISTS idx_episodes_series  ON episodes(series_id);
+
+-- Categories: unique slug per level (mains share parent NULL → COALESCE to 0).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_slug
+    ON categories(COALESCE(parent_id, 0), slug);
+CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id);
+
+-- Content ↔ category links: block duplicate assignments and speed up lookups.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_unique
+    ON content_categories(category_id, COALESCE(movie_id, 0), COALESCE(series_id, 0));
+CREATE INDEX IF NOT EXISTS idx_cc_movie    ON content_categories(movie_id);
+CREATE INDEX IF NOT EXISTS idx_cc_series   ON content_categories(series_id);
+CREATE INDEX IF NOT EXISTS idx_cc_category  ON content_categories(category_id);
 
 -- Unique index for watch_progress upsert (ON CONFLICT).
 -- COALESCE handles NULL columns so the composite key is always unique.

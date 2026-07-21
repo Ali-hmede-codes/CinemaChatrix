@@ -18,6 +18,7 @@
 
 const movieModel = require('../models/movieModel');
 const seriesModel = require('../models/seriesModel');
+const categoryModel = require('../models/categoryModel');
 const paths = require('../config/paths');
 const response = require('../utils/response');
 
@@ -36,6 +37,7 @@ function shapeFilm(m) {
         poster: m.poster_path || m.thumbnail_path || paths.DEFAULT_IMAGE_URL,
         duration: m.duration,
         quality: m.quality,
+        categories: m.categories || [],
         created_at: m.created_at,
     };
 }
@@ -50,8 +52,21 @@ function shapeSeries(s) {
         description: s.description,
         poster: s.poster_path || paths.DEFAULT_IMAGE_URL,
         episode_count: s.episode_count ?? 0,
+        categories: s.categories || [],
         created_at: s.created_at,
     };
+}
+
+/**
+ * Attach a `categories` array to each row in place (batch, no N+1), then return
+ * the rows so callers can map them straight through a shaper.
+ * @param {'movie'|'series'} kind
+ * @param {object[]} rows
+ */
+function attachCategories(kind, rows) {
+    const map = categoryModel.mapForContent(kind, rows.map((r) => r.id));
+    rows.forEach((r) => { r.categories = map.get(r.id) || []; });
+    return rows;
 }
 
 /* ------------------------------------------------------------------ */
@@ -69,6 +84,14 @@ function parsePaging(req) {
     return { page, limit, offset: (page - 1) * limit, q };
 }
 
+/** Parse an optional ?category=<id> filter into a positive integer or null. */
+function parseCategoryId(req) {
+    const raw = req.query.category;
+    if (raw === undefined || raw === null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /* ------------------------------------------------------------------ */
 /*  GET /api/catalog/home                                              */
 /* ------------------------------------------------------------------ */
@@ -76,8 +99,8 @@ function parsePaging(req) {
 function home(req, res) {
     // Home only needs enough to fill the rails — the first page of each kind.
     // The paginated Films/Series tabs load the rest on demand.
-    const films = movieModel.findPublishedPaged({ limit: 12, offset: 0 }).map(shapeFilm);
-    const series = seriesModel.findPublishedPaged({ limit: 12, offset: 0 }).map(shapeSeries);
+    const films = attachCategories('movie', movieModel.findPublishedPaged({ limit: 12, offset: 0 })).map(shapeFilm);
+    const series = attachCategories('series', seriesModel.findPublishedPaged({ limit: 12, offset: 0 })).map(shapeSeries);
 
     // "Newly added" = the most recent items across both kinds. The newest 12
     // overall are guaranteed to live inside the newest 12 of each list.
@@ -85,17 +108,22 @@ function home(req, res) {
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, 12);
 
-    return response.success(res, { films, series, newly }, 'Catalog');
+    // The category tree so the home screen can render browse-by-category rails.
+    const categories = categoryModel.findTree();
+
+    return response.success(res, { films, series, newly, categories }, 'Catalog');
 }
 
 /* ------------------------------------------------------------------ */
-/*  GET /api/catalog/films?page=&limit=&q=                             */
+/*  GET /api/catalog/films?page=&limit=&q=&category=                   */
 /* ------------------------------------------------------------------ */
 
 function films(req, res) {
     const { page, limit, offset, q } = parsePaging(req);
-    const items = movieModel.findPublishedPaged({ limit, offset, q }).map(shapeFilm);
-    const total = movieModel.countPublished(q);
+    const categoryId = parseCategoryId(req);
+    const rows = movieModel.findPublishedPaged({ limit, offset, q, categoryId });
+    const items = attachCategories('movie', rows).map(shapeFilm);
+    const total = movieModel.countPublished({ q, categoryId });
     return response.success(res, {
         films: items,
         page,
@@ -106,13 +134,15 @@ function films(req, res) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  GET /api/catalog/series?page=&limit=&q=                            */
+/*  GET /api/catalog/series?page=&limit=&q=&category=                  */
 /* ------------------------------------------------------------------ */
 
 function series(req, res) {
     const { page, limit, offset, q } = parsePaging(req);
-    const items = seriesModel.findPublishedPaged({ limit, offset, q }).map(shapeSeries);
-    const total = seriesModel.countPublished(q);
+    const categoryId = parseCategoryId(req);
+    const rows = seriesModel.findPublishedPaged({ limit, offset, q, categoryId });
+    const items = attachCategories('series', rows).map(shapeSeries);
+    const total = seriesModel.countPublished({ q, categoryId });
     return response.success(res, {
         series: items,
         page,
@@ -129,6 +159,7 @@ function series(req, res) {
 function filmDetail(req, res) {
     const m = movieModel.findBySlug(req.params.slug);
     if (!m || !m.is_published) return response.notFound(res, 'Film');
+    m.categories = categoryModel.findForMovie(m.id);
     return response.success(res, { film: shapeFilm(m) }, 'Film detail');
 }
 
@@ -139,6 +170,8 @@ function filmDetail(req, res) {
 function seriesDetail(req, res) {
     const s = seriesModel.findBySlug(req.params.slug);
     if (!s || !s.is_published) return response.notFound(res, 'Series');
+
+    s.categories = categoryModel.findForSeries(s.id);
 
     const episodes = seriesModel.findEpisodesBySeries(s.id).map((ep) => ({
         id: ep.id,
@@ -160,10 +193,56 @@ function seriesDetail(req, res) {
     );
 }
 
+/* ------------------------------------------------------------------ */
+/*  GET /api/catalog/category-rows?limit=                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One "rail" per category (mains first, each followed by its sub-categories),
+ * containing the latest N published titles — films and series mixed, newest
+ * first. Powers the browse-by-category rows on the user app's home screen.
+ * A main-category rail includes titles tagged with the main OR any of its subs.
+ * Categories with no published content are omitted.
+ */
+function categoryRows(req, res) {
+    let perRow = parseInt(req.query.limit, 10);
+    if (!Number.isFinite(perRow) || perRow < 1) perRow = 5;
+    perRow = Math.min(perRow, 12);
+
+    // Flatten the tree into display order: each main, then its children.
+    const nodes = [];
+    for (const main of categoryModel.findTree()) {
+        nodes.push(main);
+        for (const sub of main.children || []) nodes.push(sub);
+    }
+
+    const rows = [];
+    for (const cat of nodes) {
+        const films = movieModel.findPublishedPaged({ categoryId: cat.id, limit: perRow }).map(shapeFilm);
+        const series = seriesModel.findPublishedPaged({ categoryId: cat.id, limit: perRow }).map(shapeSeries);
+        const items = [...films, ...series]
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+            .slice(0, perRow);
+        if (items.length) {
+            rows.push({
+                id: cat.id,
+                name: cat.name,
+                slug: cat.slug,
+                parent_id: cat.parent_id,
+                is_main: !cat.parent_id,
+                items,
+            });
+        }
+    }
+
+    return response.success(res, { rows }, 'Category rows');
+}
+
 module.exports = {
     home,
     films,
     series,
     filmDetail,
     seriesDetail,
+    categoryRows,
 };

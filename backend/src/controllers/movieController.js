@@ -7,6 +7,7 @@
  */
 
 const movieModel = require('../models/movieModel');
+const categoryModel = require('../models/categoryModel');
 const uploadService = require('../services/uploadService');
 const storageService = require('../services/storageService');
 const remoteImportService = require('../services/remoteImportService');
@@ -24,6 +25,24 @@ function parseBool(val, fallback = 1) {
     return ['1', 'true', 'on', 'yes'].includes(String(val).toLowerCase()) ? 1 : 0;
 }
 
+/**
+ * Parse a `category_ids` field from a multipart form into an array of numeric
+ * ids. Accepts a JSON array string ("[1,2]"), a repeated field (array) or a
+ * comma-separated string. Returns null when the field is absent (leave the
+ * film's categories untouched) and [] when explicitly empty (clear them all).
+ */
+function parseIdList(val) {
+    if (val === undefined || val === null) return null;
+    if (Array.isArray(val)) return val.map(Number).filter(Number.isInteger);
+    const str = String(val).trim();
+    if (str === '') return [];
+    try {
+        const arr = JSON.parse(str);
+        if (Array.isArray(arr)) return arr.map(Number).filter(Number.isInteger);
+    } catch { /* not JSON — fall through to CSV */ }
+    return str.split(',').map((s) => Number(s.trim())).filter(Number.isInteger);
+}
+
 async function cleanupTempFiles(req) {
     if (!req.files) return;
     const all = Object.values(req.files).flat();
@@ -37,7 +56,10 @@ async function cleanupTempFiles(req) {
 /* ------------------------------------------------------------------ */
 
 function list(req, res) {
-    return response.success(res, { movies: movieModel.findAll() }, 'All films');
+    const movies = movieModel.findAll();
+    const catMap = categoryModel.mapForContent('movie', movies.map((m) => m.id));
+    const withCats = movies.map((m) => ({ ...m, categories: catMap.get(m.id) || [] }));
+    return response.success(res, { movies: withCats }, 'All films');
 }
 
 /* ------------------------------------------------------------------ */
@@ -49,6 +71,7 @@ function getBySlug(req, res) {
     if (!movie) return response.notFound(res, 'Film');
     // Never expose the private filesystem video path publicly
     const { video_path, ...safe } = movie;
+    safe.categories = categoryModel.findForMovie(movie.id);
     return response.success(res, { movie: safe }, 'Film info');
 }
 
@@ -59,7 +82,7 @@ function getBySlug(req, res) {
 async function create(req, res, next) {
     const videoFile = req.files?.video?.[0];
     const posterFile = req.files?.poster?.[0];
-    const { title, description, quality, is_published, video_url, poster_url } = req.body;
+    const { title, description, quality, is_published, video_url, poster_url, category_ids } = req.body;
 
     try {
         if (!title || !title.trim()) {
@@ -99,6 +122,11 @@ async function create(req, res, next) {
             quality: quality || video.quality,
             is_published: parseBool(is_published, 1),
         });
+
+        // Attach any selected categories (main and/or sub).
+        const catIds = parseIdList(category_ids);
+        if (catIds) categoryModel.setForMovie(movie.id, catIds);
+        movie.categories = categoryModel.findForMovie(movie.id);
 
         logger.info(`[movies] Created film "${movie.title}" (id=${movie.id})`);
         return response.success(res, { movie }, 'Film created', 201);
@@ -151,7 +179,7 @@ async function update(req, res, next) {
     }
 
     const posterFile = req.files?.poster?.[0];
-    const { title, description, quality, is_published, poster_url } = req.body;
+    const { title, description, quality, is_published, poster_url, category_ids } = req.body;
 
     try {
         const fields = {};
@@ -181,6 +209,12 @@ async function update(req, res, next) {
         }
 
         const updated = movieModel.update(movie.id, fields);
+
+        // Sync categories when the field is present (empty array clears them).
+        const catIds = parseIdList(category_ids);
+        if (catIds !== null) categoryModel.setForMovie(movie.id, catIds);
+        updated.categories = categoryModel.findForMovie(movie.id);
+
         logger.info(`[movies] Updated film "${updated.title}" (id=${movie.id})`);
         return response.success(res, { movie: updated }, 'Film updated');
     } catch (err) {
