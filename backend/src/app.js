@@ -40,10 +40,30 @@ function createApp() {
 
     /* ---- Security headers ----------------------------------------- */
     app.use(helmet({
-        // Allow video streaming in same-origin contexts
+        // Allow video/poster responses to be embedded cross-origin.
         crossOriginResourcePolicy: { policy: 'cross-origin' },
-        // Allow inline styles for player pages (Phase 9)
-        contentSecurityPolicy: env.server.isProduction ? undefined : false,
+        // In production, ship an explicit Content-Security-Policy that permits
+        // exactly what the admin/user frontends use: same-origin scripts, inline
+        // styles (one inline style attr + runtime styling), Google Fonts,
+        // same-origin media (video streams) and images. Scripts stay locked to
+        // 'self' (no inline/CDN JS) — that's where XSS protection matters most.
+        // CSP is left off in development to keep local iteration friction-free.
+        contentSecurityPolicy: env.server.isProduction ? {
+            useDefaults: true,
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'"],
+                styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+                fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+                imgSrc: ["'self'", 'data:', 'blob:'],
+                mediaSrc: ["'self'", 'blob:'],
+                connectSrc: ["'self'"],
+                objectSrc: ["'none'"],
+                // Don't force http→https upgrades: TLS is owned by the reverse
+                // proxy/CDN, and this would break plain-HTTP or local testing.
+                upgradeInsecureRequests: null,
+            },
+        } : false,
     }));
 
     /* ---- CORS ----------------------------------------------------- */
